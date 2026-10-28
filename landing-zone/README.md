@@ -1,7 +1,8 @@
 # landing-zone
 
 AWS Organizations setup: OUs, member accounts, centralized root access, Identity Center
-assignments, Budgets alerts, the organization CloudTrail, and (gated) SCPs on Workloads.
+assignments, Budgets alerts, and (gated) SCPs on Workloads. The organization CloudTrail lives
+in `../log-archive`, not here - see "What's deliberately not here" below for why.
 
 Local state for now - see `versions.tf`. Migrates into the shared-services state bucket once
 `../bootstrap-state` has been applied; see that module's README for the exact
@@ -23,9 +24,18 @@ Local state for now - see `versions.tf`. Migrates into the shared-services state
 6. Only then set `attach_workload_scps = true` in `terraform.tfvars` and apply again. These
    SCPs deny IAM user/access-key creation and restrict regions on the Workloads OU - easiest to
    recover from a mistake in them before they're attached, not after.
+7. Once the accounts above exist, `../log-archive` can be applied - see its README.
 
-## What's deliberately not here yet
+## What's deliberately not here
 
+- **The organization CloudTrail is in `../log-archive`, not here.** It was here originally,
+  but its provider needs the log-archive account's ID, which doesn't exist until this config's
+  own apply creates it - a provider block can't depend on a resource created in the same apply.
+  That's what broke the first `landing-zone` apply (`terraform plan` would error trying to
+  resolve `aws.log_archive`'s `assume_role.role_arn` before the account existed). Splitting it
+  into its own root module, applied after this one, fixes it: by the time `log-archive`'s
+  provider is evaluated, the account is real and its ID is a known value, looked up via
+  Organizations rather than depended on directly.
 - No resource manages the `AdministratorAccess` permission set itself - it's looked up (it
   already existed from when Identity Center was first enabled by hand), not owned by Terraform.
 - The new `ReadOnly` permission set isn't assigned to anyone yet - no second Identity Center
