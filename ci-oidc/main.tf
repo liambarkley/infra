@@ -56,9 +56,9 @@ resource "aws_iam_role_policy_attachment" "ci_read_only" {
 
 data "aws_iam_policy_document" "ci_state_access" {
   statement {
-    sid       = "ReadState"
-    effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:ListBucket"]
+    sid     = "ReadState"
+    effect  = "Allow"
+    actions = ["s3:GetObject", "s3:ListBucket"]
     resources = [
       "arn:aws:s3:::${var.state_bucket_name}",
       "arn:aws:s3:::${var.state_bucket_name}/*",

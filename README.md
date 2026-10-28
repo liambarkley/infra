@@ -21,3 +21,5 @@ workspace (not part of this repo).
 - Every resource tagged `project=build-cache`.
 - Remote state in S3 with a DynamoDB lock table; see `bootstrap-state/README.md` for how that
   backend itself gets created.
+
+<!-- CI smoke test: confirms fmt/validate/tflint/checkov all run on a PR -->

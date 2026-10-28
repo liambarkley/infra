@@ -53,6 +53,22 @@ jobs:
         with:
           directory: .
           framework: terraform
+          # Skipped deliberately for this single-account, cost-conscious demo project (see
+          # docs/PLAN.md's cost control section) - each is a real check that makes sense for a
+          # production account, not a gap we didn't notice:
+          #   CKV_AWS_119  DynamoDB CMK encryption   - default AWS-owned encryption is already on;
+          #                                            a customer-managed KMS key adds ~$1/mo for
+          #                                            a lock table with no sensitive data.
+          #   CKV_AWS_145  S3 bucket KMS encryption   - same trade-off, for the tfstate bucket.
+          #   CKV_AWS_130  public subnets auto-assign - intentional: these subnets exist to be
+          #                public (future ALB for the cache node).
+          #   CKV2_AWS_62  S3 event notifications     - nothing downstream to notify; demo bucket.
+          #   CKV_AWS_18   S3 access logging          - extra bucket + cost for a state bucket
+          #                                            only Liam and CI touch.
+          #   CKV_AWS_144  S3 cross-region replication - single-region project by design.
+          #   CKV2_AWS_11  VPC flow logs              - real gap, deferred to phase 4
+          #                                            (observability), not skipped forever.
+          skip_check: "CKV_AWS_119,CKV_AWS_145,CKV_AWS_130,CKV2_AWS_62,CKV_AWS_18,CKV_AWS_144,CKV2_AWS_11"
 
   # Once infra/ci-oidc is applied:
   #   plan:
