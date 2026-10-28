@@ -23,6 +23,14 @@ resource "aws_internet_gateway" "this" {
   tags = merge(local.tags, { Name = "${var.name}-igw" })
 }
 
+# Every VPC gets a default security group whether or not it's referenced. Lock it down to
+# nothing rather than leave AWS's wide-open default in place.
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = merge(local.tags, { Name = "${var.name}-default-sg-locked" })
+}
+
 resource "aws_subnet" "public" {
   count                   = length(var.azs)
   vpc_id                  = aws_vpc.this.id
