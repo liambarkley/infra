@@ -1,38 +1,47 @@
-# Step 5: organization CloudTrail logging to a bucket in log-archive.
+# This config runs after ../landing-zone has created the log-archive account - it looks that
+# account's ID up via Organizations rather than hardcoding it or reading landing-zone's state
+# directly (landing-zone may still be on local state, and even once migrated, reaching across
+# root modules' state on every plan is more coupling than a one-line data source needs).
 #
-# The trail itself must be created from the management account (is_organization_trail only
-# works there). The bucket lives in log-archive, reached via an assumed role - member accounts
-# created by Organizations trust the management account's OrganizationAccountAccessRole by
-# default, so the mgmt-admin SSO role (AdministratorAccess) can assume it without any extra
-# setup.
-provider "aws" {
-  alias   = "log_archive"
-  region  = var.aws_region
-  profile = var.aws_profile
-
-  assume_role {
-    role_arn     = "arn:aws:iam::${aws_organizations_account.log_archive.id}:role/OrganizationAccountAccessRole"
-    session_name = "terraform-landing-zone"
-  }
-
-  default_tags {
-    tags = {
-      project   = "build-cache"
-      ManagedBy = "terraform"
-      Component = "landing-zone"
-    }
-  }
-}
-
-data "aws_caller_identity" "management" {}
+# This split exists because a provider block's arguments can't depend on a resource created in
+# the same apply: the first landing-zone apply failed because its log_archive provider alias
+# assumed a role using an account ID that didn't exist yet. Splitting this out means that by
+# the time this config's provider is evaluated, the account already exists and its ID is a
+# known value, not a computed one.
+data "aws_organizations_organization" "current" {}
 
 locals {
+  log_archive_account_id = one([
+    for a in data.aws_organizations_organization.current.accounts : a.id
+    if a.name == "log-archive"
+  ])
+
   org_trail_name = "build-cache-org-trail"
   # Built from known parts rather than referencing aws_cloudtrail.org.arn, which would be a
   # cycle: the bucket policy needs the trail's ARN, but the trail needs the bucket (with that
   # policy already in place) to exist first. CloudTrail trail ARNs are deterministic, so this
   # is safe.
   org_trail_arn = "arn:aws:cloudtrail:${var.aws_region}:${data.aws_caller_identity.management.account_id}:trail/${local.org_trail_name}"
+}
+
+data "aws_caller_identity" "management" {}
+
+provider "aws" {
+  alias  = "log_archive"
+  region = var.aws_region
+
+  assume_role {
+    role_arn     = "arn:aws:iam::${local.log_archive_account_id}:role/OrganizationAccountAccessRole"
+    session_name = "terraform-log-archive"
+  }
+
+  default_tags {
+    tags = {
+      project   = "build-cache"
+      ManagedBy = "terraform"
+      Component = "log-archive"
+    }
+  }
 }
 
 resource "aws_s3_bucket" "org_trail" {
@@ -123,7 +132,7 @@ data "aws_iam_policy_document" "org_trail_bucket" {
     }
 
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.org_trail.arn}/AWSLogs/${aws_organizations_organization.this.id}/*"]
+    resources = ["${aws_s3_bucket.org_trail.arn}/AWSLogs/${data.aws_organizations_organization.current.id}/*"]
 
     condition {
       test     = "StringEquals"
@@ -145,6 +154,8 @@ resource "aws_s3_bucket_policy" "org_trail" {
   policy   = data.aws_iam_policy_document.org_trail_bucket.json
 }
 
+# No provider = ... here: is_organization_trail only works from the management account, so
+# this uses the default provider (var.aws_profile, i.e. mgmt-admin), not aws.log_archive.
 resource "aws_cloudtrail" "org" {
   name                          = local.org_trail_name
   s3_bucket_name                = aws_s3_bucket.org_trail.id
