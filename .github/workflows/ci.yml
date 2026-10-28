@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  # id-token: write   # enable once infra/ci-oidc is applied and GH knows the role ARN
+
+env:
+  TF_VERSION: "1.9.8"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: terraform fmt -check -recursive
+
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [envs/dev, bootstrap-state, ci-oidc, modules/network, modules/eks, modules/bootstrap, modules/storage]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - working-directory: ${{ matrix.dir }}
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+  tflint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init
+      - run: tflint --recursive
+
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+
+  # Once infra/ci-oidc is applied:
+  #   plan:
+  #     runs-on: ubuntu-latest
+  #     needs: [fmt, validate, tflint, checkov]
+  #     permissions:
+  #       id-token: write
+  #       contents: read
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - uses: aws-actions/configure-aws-credentials@v4
+  #         with:
+  #           role-to-assume: <ci_role_arn output from infra/ci-oidc>
+  #           aws-region: eu-west-1
+  #       - uses: hashicorp/setup-terraform@v3
+  #       - working-directory: envs/dev
+  #         run: terraform init && terraform plan
