@@ -1,5 +1,30 @@
+# Default provider: mgmt-admin, used only to look up shared-services' account ID via
+# Organizations (that API only works from the management account, regardless of IAM
+# permissions in the target account).
 provider "aws" {
+  region  = var.aws_region
+  profile = var.aws_profile
+}
+
+data "aws_organizations_organization" "current" {}
+
+locals {
+  shared_services_account_id = one([
+    for a in data.aws_organizations_organization.current.accounts : a.id
+    if a.name == "shared-services"
+  ])
+}
+
+# Roles are created in shared-services by assuming the role the management account always
+# has access to in a member account it created - same pattern as ../bootstrap-state.
+provider "aws" {
+  alias  = "shared_services"
   region = var.aws_region
+
+  assume_role {
+    role_arn     = "arn:aws:iam::${local.shared_services_account_id}:role/OrganizationAccountAccessRole"
+    session_name = "terraform-ci-oidc"
+  }
 
   default_tags {
     tags = {
@@ -10,71 +35,24 @@ provider "aws" {
   }
 }
 
+# Fetched once here and passed to every account instantiation of the module below, instead
+# of each one making its own identical HTTPS call.
 data "tls_certificate" "github" {
   url = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
 }
 
-resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
-}
-
-data "aws_iam_policy_document" "ci_assume_role" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:*"]
-    }
-  }
-}
-
-resource "aws_iam_role" "ci" {
-  name               = "build-cache-ci-plan"
-  assume_role_policy = data.aws_iam_policy_document.ci_assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "ci_read_only" {
-  role       = aws_iam_role.ci.name
-  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-}
-
-data "aws_iam_policy_document" "ci_state_access" {
-  statement {
-    sid     = "ReadState"
-    effect  = "Allow"
-    actions = ["s3:GetObject", "s3:ListBucket"]
-    resources = [
-      "arn:aws:s3:::${var.state_bucket_name}",
-      "arn:aws:s3:::${var.state_bucket_name}/*",
-    ]
+# shared-services only for now: it's the one account with concrete CI-relevant Terraform
+# today (the state bucket itself). platform-dev gets its own block here, the same way, once
+# envs/dev's provider is pointed at it instead of the ambient/management-account default -
+# see landing-zone/README.md's "what's deliberately not here yet".
+module "shared_services" {
+  source = "../modules/github-oidc-roles"
+  providers = {
+    aws = aws.shared_services
   }
 
-  statement {
-    sid       = "PlanTimeLock"
-    effect    = "Allow"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
-    resources = ["arn:aws:dynamodb:${var.aws_region}:*:table/${var.lock_table_name}"]
-  }
-}
-
-resource "aws_iam_role_policy" "ci_state_access" {
-  name   = "state-access"
-  role   = aws_iam_role.ci.id
-  policy = data.aws_iam_policy_document.ci_state_access.json
+  github_org        = var.github_org
+  github_repo       = var.github_repo
+  oidc_thumbprint   = data.tls_certificate.github.certificates[0].sha1_fingerprint
+  state_bucket_name = var.state_bucket_name
 }

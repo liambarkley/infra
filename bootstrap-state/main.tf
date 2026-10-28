@@ -1,5 +1,30 @@
+# Default provider: mgmt-admin, used only to look up shared-services' account ID via
+# Organizations (that API only works from the management account, regardless of IAM
+# permissions in the target account).
 provider "aws" {
+  region  = var.aws_region
+  profile = var.aws_profile
+}
+
+data "aws_organizations_organization" "current" {}
+
+locals {
+  shared_services_account_id = one([
+    for a in data.aws_organizations_organization.current.accounts : a.id
+    if a.name == "shared-services"
+  ])
+}
+
+# Actual resources live in shared-services, reached by assuming the role the management
+# account always has access to in a member account it created.
+provider "aws" {
+  alias  = "target"
   region = var.aws_region
+
+  assume_role {
+    role_arn     = "arn:aws:iam::${local.shared_services_account_id}:role/OrganizationAccountAccessRole"
+    session_name = "terraform-bootstrap-state"
+  }
 
   default_tags {
     tags = {
@@ -10,8 +35,20 @@ provider "aws" {
   }
 }
 
+# A bucket name that was just deleted can stay reserved for a while, so this project's first,
+# mistakenly-management-account bucket name isn't safe to reuse immediately. The suffix also
+# means this never collides with a future re-run.
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
+locals {
+  state_bucket_name = "${var.state_bucket_base_name}-${random_id.bucket_suffix.hex}"
+}
+
 resource "aws_s3_bucket" "tfstate" {
-  bucket = var.state_bucket_name
+  provider = aws.target
+  bucket   = local.state_bucket_name
 
   lifecycle {
     prevent_destroy = true
@@ -19,7 +56,8 @@ resource "aws_s3_bucket" "tfstate" {
 }
 
 resource "aws_s3_bucket_versioning" "tfstate" {
-  bucket = aws_s3_bucket.tfstate.id
+  provider = aws.target
+  bucket   = aws_s3_bucket.tfstate.id
 
   versioning_configuration {
     status = "Enabled"
@@ -27,6 +65,7 @@ resource "aws_s3_bucket_versioning" "tfstate" {
 }
 
 resource "aws_s3_bucket_public_access_block" "tfstate" {
+  provider                = aws.target
   bucket                  = aws_s3_bucket.tfstate.id
   block_public_acls       = true
   block_public_policy     = true
@@ -35,7 +74,8 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
-  bucket = aws_s3_bucket.tfstate.id
+  provider = aws.target
+  bucket   = aws_s3_bucket.tfstate.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -45,7 +85,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
-  bucket = aws_s3_bucket.tfstate.id
+  provider = aws.target
+  bucket   = aws_s3_bucket.tfstate.id
 
   rule {
     id     = "expire-old-state-versions"
@@ -60,24 +101,5 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
-  }
-}
-
-resource "aws_dynamodb_table" "tflock" {
-  name         = var.lock_table_name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  lifecycle {
-    prevent_destroy = true
   }
 }
