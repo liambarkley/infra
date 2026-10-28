@@ -1,0 +1,6 @@
+log_archive_account_email     = "aws+log-archive@example.com"
+shared_services_account_email = "aws+shared-services@example.com"
+platform_dev_account_email    = "aws+platform-dev@example.com"
+budget_alert_email            = "aws-budget-alerts@example.com"
+
+# attach_workload_scps = true   # uncomment once SSO access into the new accounts is confirmed
