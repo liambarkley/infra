@@ -57,5 +57,16 @@ resource "aws_ssoadmin_account_assignment" "admin" {
   target_type        = "AWS_ACCOUNT"
 }
 
-# ReadOnly permission set is created but not assigned to anyone yet - no second group exists
-# to assign it to. Add an aws_ssoadmin_account_assignment block here once one does.
+# platform-admins also gets ReadOnly on every new account - same group, both permission sets.
+# There's no separate read-only-only group; Liam wants read-only available for day-to-day
+# checks without reaching for AdministratorAccess every time.
+resource "aws_ssoadmin_account_assignment" "read_only" {
+  for_each = local.member_accounts
+
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.read_only.arn
+  principal_id       = data.aws_identitystore_group.platform_admins.group_id
+  principal_type     = "GROUP"
+  target_id          = each.value
+  target_type        = "AWS_ACCOUNT"
+}
