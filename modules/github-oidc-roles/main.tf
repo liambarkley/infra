@@ -1,5 +1,5 @@
 locals {
-  apply_trusted_subs = coalesce(var.apply_trusted_subs, ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"])
+  apply_trusted_subs = coalesce(var.apply_trusted_subs, ["${var.oidc_sub_claim_prefix}:ref:refs/heads/main"])
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -29,7 +29,7 @@ data "aws_iam_policy_document" "plan_assume_role" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:pull_request"]
+      values   = ["${var.oidc_sub_claim_prefix}:pull_request"]
     }
   }
 }

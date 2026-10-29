@@ -10,16 +10,17 @@ variable "aws_profile" {
   default     = "mgmt-admin"
 }
 
-variable "github_org" {
-  description = "GitHub organization or user that owns the repo allowed to assume these roles."
+variable "oidc_sub_claim_prefix" {
+  description = <<-EOT
+    The "repo:..." prefix GitHub actually puts in its OIDC token's sub claim for this repo.
+    NOT "repo:liambarkley/infra" - this account has GitHub's "immutable subject claims"
+    setting on by default, which uses numeric org/repo IDs instead. Get the real value with:
+      gh api repos/liambarkley/infra/actions/oidc/customization/sub --jq .sub_claim_prefix
+    Re-check this if these roles ever stop authorizing for no apparent code reason - it
+    changes if the repo is ever recreated or transferred.
+  EOT
   type        = string
-  default     = "liambarkley"
-}
-
-variable "github_repo" {
-  description = "Repo (without the org prefix) allowed to assume these roles."
-  type        = string
-  default     = "infra"
+  default     = "repo:liambarkley@8986270/infra@1437625509"
 }
 
 variable "state_bucket_name" {
