@@ -23,3 +23,5 @@ workspace (not part of this repo).
   backend itself gets created.
 
 <!-- CI smoke test: confirms fmt/validate/tflint/checkov all run on a PR -->
+
+<!-- CI smoke test: confirms the plan job now authenticates via OIDC correctly -->
