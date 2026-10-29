@@ -13,6 +13,15 @@ spec:
     path: {{ .Values.path }}
     directory:
       recurse: true
+      # Only the per-app Application manifest, one per apps/<name>/ directory - not that app's
+      # own raw manifests (e.g. apps/karpenter/manifests/*.yaml), which belong to that nested
+      # Application to sync, not to this one. Without this, root-app tried to apply
+      # apps/karpenter/manifests/*.yaml directly in the same sync wave as creating the
+      # "karpenter" Application that installs their CRDs, and failed every time with "The
+      # Kubernetes API could not find karpenter.k8s.aws/EC2NodeClass ... Make sure the CRD is
+      # installed" - confirmed on the real cluster (platform/apps/karpenter's first sync
+      # attempt, 2026-10-29).
+      include: "*/application.yaml"
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.namespace }}
