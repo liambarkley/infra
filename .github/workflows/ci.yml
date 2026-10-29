@@ -113,7 +113,27 @@ jobs:
           #                                            no real traffic to monitor.
           #   CKV2_AWS_30  RDS Postgres query logging - needs a custom parameter group; real gap,
           #                                            deferred to phase 4 with the others above.
-          skip_check: "CKV_AWS_119,CKV_AWS_145,CKV_AWS_130,CKV2_AWS_62,CKV_AWS_18,CKV_AWS_144,CKV2_AWS_11,CKV_AWS_252,CKV_AWS_35,CKV2_AWS_10,CKV2_AWS_64,CKV_AWS_111,CKV_AWS_356,CKV_AWS_161,CKV_AWS_293,CKV_AWS_353,CKV_AWS_129,CKV_AWS_133,CKV_AWS_118,CKV2_AWS_30"
+          #   CKV_AWS_341  IMDS hop limit > 1        - modules/eks's system node launch template
+          #                                            raises this to 2, needed for any pod to
+          #                                            reach instance metadata at all (confirmed:
+          #                                            the AWS Load Balancer Controller's VPC-ID
+          #                                            auto-detection times out at the default
+          #                                            hop limit of 1, since a pod is one network
+          #                                            hop further out than the host). Real
+          #                                            trade-off, not a non-issue: this does let
+          #                                            any pod on these nodes read the node IAM
+          #                                            role's own IMDS credentials, not just the
+          #                                            controller that needs it. Mitigated, not
+          #                                            eliminated, by this project using Pod
+          #                                            Identity (not IMDS-vended node-role
+          #                                            credentials) for every workload that
+          #                                            actually needs meaningful AWS permissions
+          #                                            (Karpenter, the LB controller itself) -
+          #                                            the node role those pods could reach via
+          #                                            IMDS instead only has
+          #                                            AmazonEKSWorkerNodePolicy/CNI/ECR-read/SSM,
+          #                                            not application-level access.
+          skip_check: "CKV_AWS_119,CKV_AWS_145,CKV_AWS_130,CKV2_AWS_62,CKV_AWS_18,CKV_AWS_144,CKV2_AWS_11,CKV_AWS_252,CKV_AWS_35,CKV2_AWS_10,CKV2_AWS_64,CKV_AWS_111,CKV_AWS_356,CKV_AWS_161,CKV_AWS_293,CKV_AWS_353,CKV_AWS_129,CKV_AWS_133,CKV_AWS_118,CKV2_AWS_30,CKV_AWS_341"
 
   # Two configure-aws-credentials steps per job: envs/dev's provider (platform-dev) and its
   # backend (shared-services) are different accounts, so one set of assumed credentials can't

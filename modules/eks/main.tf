@@ -196,6 +196,28 @@ resource "aws_eks_access_entry" "karpenter_node" {
 # controller - deliberately not spot, so the thing that manages spot capacity can't itself be
 # interrupted by it. Everything else runs on nodes Karpenter provisions. ---
 
+# EKS's own default launch template caps IMDS at one network hop
+# (HttpPutResponseHopLimit = 1) - fine for the host itself, but a pod is one hop further out,
+# so any pod that needs instance metadata (the AWS Load Balancer Controller auto-detecting
+# its VPC ID, for one - confirmed on the live node via `aws ec2 describe-instances` before
+# writing this fix) times out reaching it. Raising it to 2 is AWS's own documented fix for
+# exactly this.
+resource "aws_launch_template" "system_node" {
+  name_prefix = "${var.name}-system-"
+
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags          = merge(local.tags, { Name = "${var.name}-system" })
+  }
+
+  tags = local.tags
+}
+
 resource "aws_eks_node_group" "system" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${var.name}-system"
@@ -204,6 +226,11 @@ resource "aws_eks_node_group" "system" {
 
   capacity_type  = "ON_DEMAND"
   instance_types = var.system_node_instance_types
+
+  launch_template {
+    id      = aws_launch_template.system_node.id
+    version = aws_launch_template.system_node.latest_version
+  }
 
   scaling_config {
     desired_size = var.system_node_desired_size
