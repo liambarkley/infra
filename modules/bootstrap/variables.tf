@@ -18,6 +18,40 @@ variable "aws_region" {
   type        = string
 }
 
+variable "aws_profile" {
+  description = <<-EOT
+    AWS CLI/SSO profile for local runs, passed into the kubernetes/helm providers' `exec`
+    plugin via its own `env` block - NOT inherited from the ambient shell (the exec plugin
+    runs `aws` as a plain subprocess, which only sees what's explicitly set here; a `-var` on
+    the root `aws` provider's own `profile` argument has no effect on it). Ignored whenever
+    aws_access_key_id is set (CI's case - see that variable), same pattern as envs/dev's own
+    provider.tf.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "aws_access_key_id" {
+  description = "Static credentials for CI, passed into the exec plugin's env the same way as aws_profile - see that variable's description. Leave empty for local runs."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  description = "Paired with aws_access_key_id - see its description."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_session_token" {
+  description = "Paired with aws_access_key_id - see its description."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "argocd_chart_version" {
   description = "Pinned version of the argo-cd Helm chart (from https://argoproj.github.io/argo-helm)."
   type        = string

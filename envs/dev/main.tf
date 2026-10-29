@@ -36,5 +36,14 @@ module "bootstrap" {
   cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
   aws_region                         = var.aws_region
 
+  # Same credentials as this config's own `aws` provider (provider.tf) - the exec plugin that
+  # authenticates kubernetes/helm against the cluster needs its own copy, since it runs `aws`
+  # as a subprocess that doesn't inherit a provider's `profile` argument. See
+  # modules/bootstrap/main.tf's comment on exec_env for why this exists.
+  aws_profile           = var.aws_profile
+  aws_access_key_id     = var.aws_access_key_id
+  aws_secret_access_key = var.aws_secret_access_key
+  aws_session_token     = var.aws_session_token
+
   apps_repo_url = "https://github.com/liambarkley/platform.git"
 }
