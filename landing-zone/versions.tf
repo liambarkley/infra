@@ -8,9 +8,15 @@ terraform {
     }
   }
 
-  # Local state for now, per docs/PLAN.md's landing-zone stage. Migrates into the
-  # shared-services bucket (../bootstrap-state) once that exists - see that module's
-  # README for the exact terraform init -migrate-state steps.
+  # Migrated from local state once ../bootstrap-state existed - see that module's README for
+  # the terraform init -migrate-state steps this came from.
+  backend "s3" {
+    key          = "landing-zone/terraform.tfstate"
+    region       = "ca-central-1"
+    profile      = "shared-services-admin"
+    use_lockfile = true
+    encrypt      = true
+  }
 }
 
 provider "aws" {
