@@ -79,7 +79,10 @@ jobs:
 
   # Two configure-aws-credentials steps per job: envs/dev's provider (platform-dev) and its
   # backend (shared-services) are different accounts, so one set of assumed credentials can't
-  # cover both.
+  # cover both. This action has no option to write a named profile (aws-profile is not a real
+  # input on it, despite how it might look at a glance) - output-credentials: true + explicit
+  # step outputs is the real mechanism, passed straight through as -var/-backend-config rather
+  # than relying on either step's ambient env vars (which would just overwrite each other).
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -89,24 +92,34 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - id: platform_dev
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.PLATFORM_DEV_PLAN_ROLE_ARN }}
           aws-region: ca-central-1
-          aws-profile: platform-dev-ci
-      - uses: aws-actions/configure-aws-credentials@v4
+          output-credentials: true
+          output-env-credentials: false
+      - id: shared_services
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.SHARED_SERVICES_PLAN_ROLE_ARN }}
           aws-region: ca-central-1
-          aws-profile: shared-services-ci
+          output-credentials: true
+          output-env-credentials: false
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
       - working-directory: envs/dev
         run: |
-          terraform init -backend-config="bucket=build-cache-tfstate-62512aa5" \
-                          -backend-config="profile=shared-services-ci"
-          terraform plan -var="aws_profile=platform-dev-ci"
+          terraform init \
+            -backend-config="bucket=build-cache-tfstate-62512aa5" \
+            -backend-config="access_key=${{ steps.shared_services.outputs.aws-access-key-id }}" \
+            -backend-config="secret_key=${{ steps.shared_services.outputs.aws-secret-access-key }}" \
+            -backend-config="token=${{ steps.shared_services.outputs.aws-session-token }}"
+          terraform plan \
+            -var="aws_access_key_id=${{ steps.platform_dev.outputs.aws-access-key-id }}" \
+            -var="aws_secret_access_key=${{ steps.platform_dev.outputs.aws-secret-access-key }}" \
+            -var="aws_session_token=${{ steps.platform_dev.outputs.aws-session-token }}"
 
   # Deliberately NOT triggered by push-to-main: envs/dev stays unapplied until phase 2 (its
   # NAT gateway costs hourly), and this repo merges to main often enough that an
@@ -122,21 +135,31 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - id: platform_dev
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.PLATFORM_DEV_APPLY_ROLE_ARN }}
           aws-region: ca-central-1
-          aws-profile: platform-dev-ci
-      - uses: aws-actions/configure-aws-credentials@v4
+          output-credentials: true
+          output-env-credentials: false
+      - id: shared_services
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.SHARED_SERVICES_APPLY_ROLE_ARN }}
           aws-region: ca-central-1
-          aws-profile: shared-services-ci
+          output-credentials: true
+          output-env-credentials: false
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
       - working-directory: envs/dev
         run: |
-          terraform init -backend-config="bucket=build-cache-tfstate-62512aa5" \
-                          -backend-config="profile=shared-services-ci"
-          terraform apply -auto-approve -var="aws_profile=platform-dev-ci"
+          terraform init \
+            -backend-config="bucket=build-cache-tfstate-62512aa5" \
+            -backend-config="access_key=${{ steps.shared_services.outputs.aws-access-key-id }}" \
+            -backend-config="secret_key=${{ steps.shared_services.outputs.aws-secret-access-key }}" \
+            -backend-config="token=${{ steps.shared_services.outputs.aws-session-token }}"
+          terraform apply -auto-approve \
+            -var="aws_access_key_id=${{ steps.platform_dev.outputs.aws-access-key-id }}" \
+            -var="aws_secret_access_key=${{ steps.platform_dev.outputs.aws-secret-access-key }}" \
+            -var="aws_session_token=${{ steps.platform_dev.outputs.aws-session-token }}"
