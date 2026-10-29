@@ -4,10 +4,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch: # apply only runs for this trigger - see the apply job below for why
 
 permissions:
   contents: read
-  # id-token: write   # enable once infra/ci-oidc is applied and GH knows the role ARN
 
 env:
   TF_VERSION: "1.17.1" # >= 1.10 required for the S3 backend's use_lockfile
@@ -77,57 +77,66 @@ jobs:
           #                Logs integration             CloudWatch Logs cost, deferred to phase 4.
           skip_check: "CKV_AWS_119,CKV_AWS_145,CKV_AWS_130,CKV2_AWS_62,CKV_AWS_18,CKV_AWS_144,CKV2_AWS_11,CKV_AWS_252,CKV_AWS_35,CKV2_AWS_10"
 
-  # Once infra/ci-oidc is applied (see its README), wire up. Two configure-aws-credentials
-  # steps per job: envs/dev's provider (platform-dev) and its backend (shared-services) are
-  # different accounts, so one set of assumed credentials can't cover both.
-  #   plan:
-  #     if: github.event_name == 'pull_request'
-  #     runs-on: ubuntu-latest
-  #     needs: [fmt, validate, tflint, checkov]
-  #     permissions:
-  #       id-token: write
-  #       contents: read
-  #     steps:
-  #       - uses: actions/checkout@v4
-  #       - uses: aws-actions/configure-aws-credentials@v4
-  #         with:
-  #           role-to-assume: <platform_dev_plan_role_arn output from infra/ci-oidc>
-  #           aws-region: ca-central-1
-  #           aws-profile: platform-dev-ci
-  #       - uses: aws-actions/configure-aws-credentials@v4
-  #         with:
-  #           role-to-assume: <shared_services_plan_role_arn output from infra/ci-oidc>
-  #           aws-region: ca-central-1
-  #           aws-profile: shared-services-ci
-  #       - uses: hashicorp/setup-terraform@v3
-  #       - working-directory: envs/dev
-  #         run: |
-  #           terraform init -backend-config="bucket=<state_bucket_name output from bootstrap-state>" \
-  #                           -backend-config="profile=shared-services-ci"
-  #           terraform plan -var="aws_profile=platform-dev-ci"
-  #
-  #   apply:
-  #     if: github.ref == 'refs/heads/main'
-  #     runs-on: ubuntu-latest
-  #     needs: [fmt, validate, tflint, checkov]
-  #     permissions:
-  #       id-token: write
-  #       contents: read
-  #     steps:
-  #       - uses: actions/checkout@v4
-  #       - uses: aws-actions/configure-aws-credentials@v4
-  #         with:
-  #           role-to-assume: <platform_dev_apply_role_arn output from infra/ci-oidc>
-  #           aws-region: ca-central-1
-  #           aws-profile: platform-dev-ci
-  #       - uses: aws-actions/configure-aws-credentials@v4
-  #         with:
-  #           role-to-assume: <shared_services_apply_role_arn output from infra/ci-oidc>
-  #           aws-region: ca-central-1
-  #           aws-profile: shared-services-ci
-  #       - uses: hashicorp/setup-terraform@v3
-  #       - working-directory: envs/dev
-  #         run: |
-  #           terraform init -backend-config="bucket=<state_bucket_name output from bootstrap-state>" \
-  #                           -backend-config="profile=shared-services-ci"
-  #           terraform apply -auto-approve -var="aws_profile=platform-dev-ci"
+  # Two configure-aws-credentials steps per job: envs/dev's provider (platform-dev) and its
+  # backend (shared-services) are different accounts, so one set of assumed credentials can't
+  # cover both.
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [fmt, validate, tflint, checkov]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::PLATFORM_DEV_ACCOUNT_ID:role/build-cache-ci-plan
+          aws-region: ca-central-1
+          aws-profile: platform-dev-ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::SHARED_SERVICES_ACCOUNT_ID:role/build-cache-ci-plan
+          aws-region: ca-central-1
+          aws-profile: shared-services-ci
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - working-directory: envs/dev
+        run: |
+          terraform init -backend-config="bucket=build-cache-tfstate-62512aa5" \
+                          -backend-config="profile=shared-services-ci"
+          terraform plan -var="aws_profile=platform-dev-ci"
+
+  # Deliberately NOT triggered by push-to-main: envs/dev stays unapplied until phase 2 (its
+  # NAT gateway costs hourly), and this repo merges to main often enough that an
+  # automatic on-push apply would create it the next time anything unrelated merges. Trigger
+  # this by hand (Actions tab -> this workflow -> Run workflow, or `gh workflow run ci.yml`)
+  # once phase 2 actually starts.
+  apply:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: [fmt, validate, tflint, checkov]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::PLATFORM_DEV_ACCOUNT_ID:role/build-cache-ci-apply
+          aws-region: ca-central-1
+          aws-profile: platform-dev-ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::SHARED_SERVICES_ACCOUNT_ID:role/build-cache-ci-apply
+          aws-region: ca-central-1
+          aws-profile: shared-services-ci
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - working-directory: envs/dev
+        run: |
+          terraform init -backend-config="bucket=build-cache-tfstate-62512aa5" \
+                          -backend-config="profile=shared-services-ci"
+          terraform apply -auto-approve -var="aws_profile=platform-dev-ci"
