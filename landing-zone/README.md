@@ -10,7 +10,63 @@ Local state for now - see `versions.tf`. Migrates into the shared-services state
 `../bootstrap-state` has been applied; see that module's README for the exact
 `terraform init -migrate-state` steps once you're ready to do that.
 
-## Order of operations
+## Resume here
+
+Picking this back up after a pause? This is where things stand and what's left, in order.
+Each step lists a check to confirm it actually worked before moving to the next.
+
+**Already applied and live:** the org import, Security/Workloads OUs, the three member
+accounts, centralized root access, `platform-admins`'s `AdministratorAccess` on all three
+accounts, the Budget, and - in `../log-archive`, not here - the organization CloudTrail (its
+first apply failed on a bucket policy issue, fixed; see
+`platform/docs/postmortems/2026-10-org-trail-bucket-policy.md`).
+
+**Still to apply, in order:**
+
+1. **`../bootstrap-state`** - creates the shared-services state bucket.
+   ```
+   cd infra/bootstrap-state && terraform init && terraform plan && terraform apply
+   terraform output -raw state_bucket_name   # note this down, you'll need it below
+   ```
+   Check: `aws s3api get-bucket-versioning --profile shared-services-admin --bucket <name>`
+   returns `Enabled`.
+
+2. **This config** (`landing-zone`), to apply the `platform-admins` `ReadOnly` assignment and
+   the budget-breach SCP action (both from PR #4):
+   ```
+   terraform plan && terraform apply
+   ```
+   Check: `aws budgets describe-budget-actions --profile mgmt-admin --account-id <management-account-id> --budget-name build-cache-monthly`
+   lists the new action; SSO profiles ending `-readonly` now actually work.
+
+3. **Migrate this config's state** into the bucket from step 1 - see
+   `../bootstrap-state/README.md`'s "Migrating landing-zone's state in" for the exact backend
+   block and `terraform init -migrate-state` command.
+   Check: `terraform plan` immediately after shows 0 changes.
+
+4. **`../ci-oidc`**:
+   ```
+   cd infra/ci-oidc
+   terraform init -backend-config="bucket=<state_bucket_name from step 1>"
+   terraform plan  -var="state_bucket_name=<same value>"
+   terraform apply -var="state_bucket_name=<same value>"
+   ```
+   Check: `terraform output` shows all four role ARNs (shared-services and platform-dev,
+   plan and apply).
+
+5. **SCPs on Workloads** - only once SSO access into all three accounts is confirmed working:
+   set `attach_workload_scps = true` in `landing-zone/terraform.tfvars`, then
+   `terraform plan && terraform apply` here again.
+   Check: `aws organizations list-policies-for-target --profile mgmt-admin --filter SERVICE_CONTROL_POLICY --target-id <Workloads OU ID>`
+   lists both `workloads-guardrails` and `deny-other-regions`.
+
+**Deliberately not in this list:** `envs/dev` is written and validated but stays unapplied
+until phase 2 - its NAT gateway costs hourly the moment it exists, so there's no reason to
+have it running before anything actually uses it.
+
+## Order of operations (historical - the first apply, already done)
+
+Kept for reference; if you're resuming after a pause, use "Resume here" above instead.
 
 1. `terraform init`, then **you** run (not Claude Code - import is off the table for it):
    ```
