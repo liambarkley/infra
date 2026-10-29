@@ -37,3 +37,13 @@ output "karpenter_interruption_queue_name" {
   description = "SQS queue name carrying spot interruption/rebalance notifications, for Karpenter's EC2NodeClass to reference."
   value       = aws_sqs_queue.karpenter_interruption.name
 }
+
+output "cluster_security_group_id" {
+  description = <<-EOT
+    ID of the security group EKS creates and attaches to every node automatically (system
+    node group and Karpenter-launched nodes alike - Karpenter's own EC2NodeClass selects it by
+    tag, see platform/apps/karpenter). Other modules (e.g. RDS) use this to allow ingress from
+    "every pod in the cluster" without needing to enumerate node groups individually.
+  EOT
+  value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+}

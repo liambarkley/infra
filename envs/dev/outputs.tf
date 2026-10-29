@@ -32,3 +32,13 @@ output "karpenter_interruption_queue_name" {
   description = "SQS queue name for platform/apps/karpenter's EC2NodeClass to reference."
   value       = module.eks.karpenter_interruption_queue_name
 }
+
+output "rds_endpoint" {
+  description = "Postgres connection endpoint for the demo app."
+  value       = module.rds.endpoint
+}
+
+output "rds_master_user_secret_arn" {
+  description = "AWS Secrets Manager ARN holding the RDS master password - the demo app reads this at runtime, nothing here holds the value itself."
+  value       = module.rds.master_user_secret_arn
+}

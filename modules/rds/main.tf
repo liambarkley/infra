@@ -1,0 +1,79 @@
+locals {
+  tags = merge(
+    {
+      project   = "build-cache"
+      ManagedBy = "terraform"
+      Module    = "rds"
+    },
+    var.tags,
+  )
+}
+
+resource "aws_db_subnet_group" "this" {
+  name       = var.name
+  subnet_ids = var.private_subnet_ids
+  tags       = merge(local.tags, { Name = var.name })
+}
+
+resource "aws_security_group" "this" {
+  name        = "${var.name}-rds"
+  description = "Allows Postgres (5432) from the EKS cluster security group only."
+  vpc_id      = var.vpc_id
+  tags        = merge(local.tags, { Name = "${var.name}-rds" })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "postgres" {
+  for_each                     = toset(var.allowed_security_group_ids)
+  description                  = "Postgres from the EKS cluster security group."
+  security_group_id            = aws_security_group.this.id
+  referenced_security_group_id = each.value
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+}
+
+# No egress rule needed: RDS instances don't initiate outbound connections this project cares
+# about, and the default security group behavior (no egress rules = no outbound allowed,
+# since this is a non-default SG we created) is fine here - nothing it needs to reach.
+
+resource "aws_db_instance" "this" {
+  identifier     = var.name
+  engine         = "postgres"
+  engine_version = var.engine_version
+  instance_class = var.instance_class
+
+  allocated_storage = var.allocated_storage
+  storage_type      = "gp3"
+  storage_encrypted = true
+
+  db_name  = var.db_name
+  username = var.master_username
+  # No `password` attribute - RDS generates one and stores it in AWS Secrets Manager
+  # automatically (manage_master_user_password), so the password itself never exists in
+  # Terraform config, state diffs, or this repo. The demo app reads it from Secrets Manager
+  # at runtime via Pod Identity - see platform/apps/demo-spring-app (not written yet).
+  manage_master_user_password = true
+
+  db_subnet_group_name   = aws_db_subnet_group.this.name
+  vpc_security_group_ids = [aws_security_group.this.id]
+  publicly_accessible    = false
+
+  auto_minor_version_upgrade = true
+  copy_tags_to_snapshot      = true
+
+  multi_az = false
+  # checkov:skip=CKV_AWS_157: single-AZ deliberately - a demo database with no real traffic,
+  # destroyed between sessions anyway (docs/PLAN.md's cost-control section). Multi-AZ roughly
+  # doubles RDS cost for resilience this project doesn't need yet.
+
+  # No automated backups - this instance is destroyed between sessions along with the rest of
+  # envs/dev (docs/PLAN.md's cost-control section), so there's nothing a backup would ever
+  # restore into. Real backup/DR story for this project is Velero (phase 5), for the
+  # cluster's own state, not this disposable demo database.
+  backup_retention_period = 0
+
+  skip_final_snapshot = true
+  deletion_protection = false
+
+  tags = merge(local.tags, { Name = var.name })
+}

@@ -47,3 +47,16 @@ module "bootstrap" {
 
   apps_repo_url = "https://github.com/liambarkley/platform.git"
 }
+
+module "rds" {
+  source = "../../modules/rds"
+
+  name                       = "build-cache-dev"
+  vpc_id                     = module.network.vpc_id
+  private_subnet_ids         = module.network.private_subnet_ids
+  allowed_security_group_ids = [module.eks.cluster_security_group_id]
+
+  tags = {
+    environment = "dev"
+  }
+}
