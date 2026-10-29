@@ -1,8 +1,10 @@
 # landing-zone
 
 AWS Organizations setup: OUs, member accounts, centralized root access, Identity Center
-assignments, Budgets alerts, and (gated) SCPs on Workloads. The organization CloudTrail lives
-in `../log-archive`, not here - see "What's deliberately not here" below for why.
+assignments, Budgets alerts (including an automatic SCP-based cutoff at $100 actual spend -
+see "Testing and removing the budget-breach SCP" below), and (gated) SCPs on Workloads. The
+organization CloudTrail lives in `../log-archive`, not here - see "What's deliberately not
+here" below for why.
 
 Local state for now - see `versions.tf`. Migrates into the shared-services state bucket once
 `../bootstrap-state` has been applied; see that module's README for the exact
@@ -26,6 +28,38 @@ Local state for now - see `versions.tf`. Migrates into the shared-services state
    recover from a mistake in them before they're attached, not after.
 7. Once the accounts above exist, `../log-archive` can be applied - see its README.
 
+## Testing and removing the budget-breach SCP
+
+`aws_budgets_budget_action.deny_all_at_100` attaches a **deny-all** SCP to the Workloads OU,
+automatically, the moment actual spend crosses $100 for the month - no approval step. Test it
+deliberately before trusting it, and know how to undo it before you need to.
+
+**To test safely:** don't lower the real budget's threshold to something today's near-zero
+spend might cross by accident while you're not watching. Instead, either:
+- Wait until there's a predictable charge (e.g. phase 2's EKS cluster running for a few hours)
+  and watch the action fire at the real $100 threshold, or
+- Temporarily edit `action_threshold_value` to something you can trigger on purpose (e.g. $1,
+  right after a small, known charge has posted - Cost Explorer data lags actual usage by
+  hours, so "triggered" means the budget recalculated, not that it's instant), apply, confirm
+  it fires, then immediately revert the threshold back to 100 and apply again.
+
+**To check whether it's fired:**
+```
+aws budgets describe-budget-action-histories --profile mgmt-admin \
+  --account-id <management-account-id> --budget-name build-cache-monthly \
+  --action-id <action id, from describe-budget-actions>
+```
+
+**To remove the SCP once attached** (whether from a real breach or a deliberate test):
+```
+aws organizations detach-policy --profile mgmt-admin \
+  --policy-id <budget_breach_deny_all policy ID> \
+  --target-id <Workloads OU ID>
+```
+This works regardless of whether AWS Budgets' own console "reverse action" option is available
+for this specific action - `detach-policy` is the authoritative, always-available fix. Spend
+causing the breach doesn't go away when you detach the SCP; fix the actual cost driver too.
+
 ## What's deliberately not here
 
 - **The organization CloudTrail is in `../log-archive`, not here.** It was here originally,
@@ -38,8 +72,6 @@ Local state for now - see `versions.tf`. Migrates into the shared-services state
   Organizations rather than depended on directly.
 - No resource manages the `AdministratorAccess` permission set itself - it's looked up (it
   already existed from when Identity Center was first enabled by hand), not owned by Terraform.
-- The new `ReadOnly` permission set isn't assigned to anyone yet - no second Identity Center
-  group exists to assign it to.
-- `envs/dev`'s own provider still points at whatever the ambient credentials are (effectively
-  the management account) - it isn't wired to assume into `platform-dev` yet. That's real,
-  necessary follow-up work this stage doesn't do, not an oversight.
+- `platform-admins` gets both `AdministratorAccess` and `ReadOnly` on every account - there's no
+  separate read-only-only group. Day-to-day checks are meant to use the `-readonly` SSO
+  profiles out of habit, not because anything enforces it.

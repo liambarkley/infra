@@ -10,13 +10,21 @@ terraform {
 
   # Created by ../../bootstrap-state (applied once, by hand, before this backend works) in
   # the shared-services account. See bootstrap-state/README.md.
-  # bucket is omitted - its name has a random suffix, unknown until bootstrap-state is
-  # applied. Initialize with:
-  #   terraform init -backend-config="bucket=<state_bucket_name output from bootstrap-state>"
+  #
+  # bucket and profile are both omitted and supplied via -backend-config, since this backend
+  # needs shared-services credentials - a different account from the aws provider above
+  # (platform-dev), so one set of ambient credentials can never cover both:
+  #   Local:  terraform init -backend-config="bucket=<state_bucket_name output>" \
+  #                           -backend-config="profile=shared-services-admin"
+  #   CI:     terraform init -backend-config="bucket=<state_bucket_name output>" \
+  #                           -backend-config="profile=shared-services-ci"
+  #           (shared-services-ci is a named profile CI creates itself via
+  #           aws-actions/configure-aws-credentials, assuming shared_services_plan_role_arn or
+  #           shared_services_apply_role_arn from ../../ci-oidc - separate from the
+  #           platform-dev-ci profile the provider above uses in the same job.)
   backend "s3" {
     key          = "envs/dev/terraform.tfstate"
     region       = "ca-central-1"
-    profile      = "shared-services-admin" # from landing-zone's sso_config_snippet output
     use_lockfile = true
     encrypt      = true
   }
