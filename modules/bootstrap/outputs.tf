@@ -1,1 +1,4 @@
-# Phase 2: outputs for the bootstrap module. Not implemented yet.
+output "argocd_namespace" {
+  description = "Namespace ArgoCD runs in."
+  value       = var.argocd_namespace
+}

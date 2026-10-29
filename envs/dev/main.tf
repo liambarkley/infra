@@ -15,3 +15,26 @@ module "network" {
     environment = "dev"
   }
 }
+
+module "eks" {
+  source = "../../modules/eks"
+
+  name               = "build-cache-dev"
+  private_subnet_ids = module.network.private_subnet_ids
+  public_subnet_ids  = module.network.public_subnet_ids
+
+  tags = {
+    environment = "dev"
+  }
+}
+
+module "bootstrap" {
+  source = "../../modules/bootstrap"
+
+  cluster_name                       = module.eks.cluster_name
+  cluster_endpoint                   = module.eks.cluster_endpoint
+  cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
+  aws_region                         = var.aws_region
+
+  apps_repo_url = "https://github.com/liambarkley/platform.git"
+}
