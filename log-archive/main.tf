@@ -131,8 +131,11 @@ data "aws_iam_policy_document" "org_trail_bucket" {
       identifiers = ["cloudtrail.amazonaws.com"]
     }
 
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.org_trail.arn}/AWSLogs/${data.aws_organizations_organization.current.id}/*"]
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.org_trail.arn}/AWSLogs/${data.aws_organizations_organization.current.id}/*",
+      "${aws_s3_bucket.org_trail.arn}/AWSLogs/${data.aws_caller_identity.management.account_id}/*",
+    ]
 
     condition {
       test     = "StringEquals"
