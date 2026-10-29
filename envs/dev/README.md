@@ -26,13 +26,16 @@ either the local SSO profile or an assumed CI role to be in place.
 
 ## Cost once applied
 
-Per `docs/PLAN.md`'s cost table: the EKS control plane (~US$0.10/hr) plus one `t3.small`
-on-demand node (~US$0.0208/hr) run continuously while this is applied - on top of the NAT
-gateway from phase 1. Nothing here is spot yet (the system node group is deliberately
-on-demand; see `modules/eks/README.md`) - Karpenter-provisioned spot capacity only exists once
-`platform/apps/karpenter` is deployed and something needs scheduling, in phase 3. Destroy
-between sessions per the plan's cost-control section; there's no `make up`/`make down` pair
-yet (tracked in the plan's guardrails checklist, phase 6).
+Per `docs/PLAN.md`'s cost table: the EKS control plane (~US$0.10/hr) plus two `t3.small`
+on-demand nodes (~US$0.0416/hr) run continuously while this is applied - on top of the NAT
+gateway from phase 1. Two nodes, not one: `t3.small`'s 11-pod EKS max-pods limit can't fit the
+EKS system daemonsets *and* the full `argo-cd` chart on a single node - see
+`system_node_desired_size`'s description in `modules/eks/variables.tf` for how that was found
+the hard way on the first real apply. Nothing here is spot yet (the system node group is
+deliberately on-demand; see `modules/eks/README.md`) - Karpenter-provisioned spot capacity only
+exists once `platform/apps/karpenter` is deployed and something needs scheduling, in phase 3.
+Destroy between sessions per the plan's cost-control section; there's no `make up`/`make down`
+pair yet (tracked in the plan's guardrails checklist, phase 6).
 
 ## Before phase 2 (EKS, Karpenter): check EC2 quotas in platform-dev
 
