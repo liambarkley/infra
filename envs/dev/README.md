@@ -1,7 +1,12 @@
 # envs/dev
 
-The only environment this project runs. Wires `modules/network` in; `eks`, `bootstrap` and
-`storage` modules get added here as they're built out in later phases.
+The only environment this project runs. Wires `modules/network`, `modules/eks` and
+`modules/bootstrap` in (phase 2); `storage` gets added here in phase 5.
+
+A real `terraform plan` against this config (network + eks + bootstrap, 51 resources, 0
+drift) confirmed clean as of phase 2 - see `module.bootstrap`'s README for why a from-scratch
+plan creating an EKS cluster and Helm-releasing onto it in the same run doesn't hit the usual
+"provider configuration not fully known" chicken-and-egg problem here.
 
 Deploys into **platform-dev**, never the management account. Two separate credentials are in
 play, since the provider (platform-dev) and the backend (shared-services, below) are different
@@ -18,6 +23,16 @@ committed - see the comment in `versions.tf`.
 
 `fmt` and `validate` work without any of the above. `plan`/`apply` need the bucket to exist and
 either the local SSO profile or an assumed CI role to be in place.
+
+## Cost once applied
+
+Per `docs/PLAN.md`'s cost table: the EKS control plane (~US$0.10/hr) plus one `t3.small`
+on-demand node (~US$0.0208/hr) run continuously while this is applied - on top of the NAT
+gateway from phase 1. Nothing here is spot yet (the system node group is deliberately
+on-demand; see `modules/eks/README.md`) - Karpenter-provisioned spot capacity only exists once
+`platform/apps/karpenter` is deployed and something needs scheduling, in phase 3. Destroy
+between sessions per the plan's cost-control section; there's no `make up`/`make down` pair
+yet (tracked in the plan's guardrails checklist, phase 6).
 
 ## Before phase 2 (EKS, Karpenter): check EC2 quotas in platform-dev
 

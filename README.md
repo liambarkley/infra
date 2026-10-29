@@ -8,7 +8,8 @@ workspace (not part of this repo).
 ## Layout
 
 - `modules/` — one module per concern (`network`, `eks`, `bootstrap`, `storage`). Environments
-  only wire modules together; no resources live directly under `envs/`.
+  only wire modules together; no resources live directly under `envs/`. `eks` and `bootstrap`
+  are built as of phase 2; `storage` is still phase 5.
 - `envs/dev/` — the only environment currently run.
 - `bootstrap-state/` — one-off config (local backend) that creates the S3 bucket + DynamoDB table
   used as remote state backend for everything else. Applied once, by hand.

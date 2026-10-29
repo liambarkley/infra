@@ -1,0 +1,4 @@
+namespace: argocd
+repoURL: ""
+targetRevision: main
+path: apps
