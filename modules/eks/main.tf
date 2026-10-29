@@ -318,8 +318,6 @@ resource "aws_eks_addon" "ebs_csi" {
 # deployed via platform/apps/karpenter (ArgoCD) - CLAUDE.md's hard rule reserves direct
 # Terraform-to-cluster changes for the bootstrap module (ArgoCD itself) alone. ---
 
-data "aws_caller_identity" "current" {}
-
 # RunInstances/CreateFleet/CreateLaunchTemplate and the Describe* calls below don't support
 # resource-level scoping for the cases Karpenter actually needs (launching nodes of types/AZs
 # it chooses dynamically) - this matches Karpenter's own documented minimal controller policy
@@ -378,11 +376,35 @@ data "aws_iam_policy_document" "karpenter_controller" {
     resources = ["*"]
   }
 
+  # No account ID in the resource ARN - deliberate, not a typo. AWS's own EKS-optimized-AMI SSM
+  # parameters (what AMI alias resolution, e.g. "al2023@latest", actually reads) live under an
+  # account-less ARN namespace. Scoping this to our own account ID (the obvious-looking choice)
+  # silently matches nothing, since the real parameter ARN's account segment is empty - found
+  # the hard way: AMIsReady stuck Unknown ("failed to discover any AMIs for alias") with no
+  # explicit AccessDenied in the logs to point at it, confirmed by comparing against the
+  # EC2NodeClass's actual AMI parameter path.
   statement {
     sid       = "AllowSSMRead"
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
-    resources = ["arn:aws:ssm:*:${data.aws_caller_identity.current.account_id}:parameter/aws/service/*"]
+    resources = ["arn:aws:ssm:*::parameter/aws/service/*"]
+  }
+
+  # The instance-profile garbage-collection controller runs unconditionally, regardless of
+  # whether any EC2NodeClass here uses Karpenter-managed instance profiles (ours doesn't - see
+  # modules/eks/README.md) - it still needs to list/read them to confirm there's nothing of
+  # its own to clean up. list/Get/Tag only, deliberately: Karpenter never gets
+  # Create/Delete/AddRoleToInstanceProfile here, since the one instance profile that actually
+  # exists (aws_iam_instance_profile.node, below) is Terraform's to manage, not Karpenter's.
+  statement {
+    sid    = "AllowInstanceProfileReadOnly"
+    effect = "Allow"
+    actions = [
+      "iam:ListInstanceProfiles",
+      "iam:GetInstanceProfile",
+      "iam:TagInstanceProfile",
+    ]
+    resources = ["*"]
   }
 
   statement {
