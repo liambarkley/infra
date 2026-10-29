@@ -68,10 +68,9 @@ module "shared_services" {
     aws = aws.shared_services
   }
 
-  github_org        = var.github_org
-  github_repo       = var.github_repo
-  oidc_thumbprint   = data.tls_certificate.github.certificates[0].sha1_fingerprint
-  state_bucket_name = var.state_bucket_name
+  oidc_sub_claim_prefix = var.oidc_sub_claim_prefix
+  oidc_thumbprint       = data.tls_certificate.github.certificates[0].sha1_fingerprint
+  state_bucket_name     = var.state_bucket_name
 }
 
 # platform-dev: where envs/dev's resources actually live, now that its provider assumes into
@@ -82,8 +81,7 @@ module "platform_dev" {
     aws = aws.platform_dev
   }
 
-  github_org        = var.github_org
-  github_repo       = var.github_repo
-  oidc_thumbprint   = data.tls_certificate.github.certificates[0].sha1_fingerprint
-  state_bucket_name = var.state_bucket_name
+  oidc_sub_claim_prefix = var.oidc_sub_claim_prefix
+  oidc_thumbprint       = data.tls_certificate.github.certificates[0].sha1_fingerprint
+  state_bucket_name     = var.state_bucket_name
 }
