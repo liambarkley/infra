@@ -19,9 +19,9 @@ variable "allowed_security_group_ids" {
 }
 
 variable "engine_version" {
-  description = "Postgres engine version."
+  description = "Postgres engine version - confirmed available in ca-central-1 via `aws rds describe-db-engine-versions --engine postgres --region ca-central-1`, not assumed."
   type        = string
-  default     = "17.4"
+  default     = "17.11"
 }
 
 variable "instance_class" {
