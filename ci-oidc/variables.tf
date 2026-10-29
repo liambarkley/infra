@@ -17,10 +17,16 @@ variable "oidc_sub_claim_prefix" {
     setting on by default, which uses numeric org/repo IDs instead. Get the real value with:
       gh api repos/liambarkley/infra/actions/oidc/customization/sub --jq .sub_claim_prefix
     Re-check this if these roles ever stop authorizing for no apparent code reason - it
-    changes if the repo is ever recreated or transferred.
+    changes if the repo is ever recreated or transferred. It just did: this changed from
+    .../infra@1437625509 on 2026-10-29, when making the repo public meant rewriting history
+    (git-filter-repo, to scrub two account IDs out of old commits) via a brand-new repo of the
+    same name rather than an in-place rewrite + force-push, which GitHub can't fully scrub from
+    old PR pages either way. A new repo means a new immutable numeric ID, even with the old
+    name - this value had to be re-pulled and this module re-applied for CI to authenticate
+    again.
   EOT
   type        = string
-  default     = "repo:liambarkley@8986270/infra@1437625509"
+  default     = "repo:liambarkley@8986270/infra@1438777351"
 }
 
 variable "state_bucket_name" {
