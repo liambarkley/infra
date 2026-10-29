@@ -87,6 +87,18 @@ variable "karpenter_service_account" {
   default     = "karpenter"
 }
 
+variable "lb_controller_namespace" {
+  description = "Namespace the AWS Load Balancer Controller runs in - must match platform/apps/aws-load-balancer-controller's Helm release."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "lb_controller_service_account" {
+  description = "Service account name the AWS Load Balancer Controller runs as - must match platform/apps/aws-load-balancer-controller's Helm release."
+  type        = string
+  default     = "aws-load-balancer-controller"
+}
+
 variable "tags" {
   description = "Extra tags merged onto every resource, in addition to project = build-cache."
   type        = map(string)

@@ -515,3 +515,42 @@ resource "aws_cloudwatch_event_target" "karpenter_interruption" {
   rule     = aws_cloudwatch_event_rule.karpenter_interruption[each.key].name
   arn      = aws_sqs_queue.karpenter_interruption.arn
 }
+
+# --- AWS Load Balancer Controller: IAM plumbing only, same split as Karpenter. The Helm
+# release itself is platform/apps/aws-load-balancer-controller (ArgoCD) - CLAUDE.md's hard
+# rule again. Pod Identity, not IRSA, for the same reason as Karpenter: no account ID in
+# platform/'s Helm values. ---
+
+resource "aws_iam_role" "lb_controller" {
+  name = "${var.name}-lb-controller"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+
+  tags = local.tags
+}
+
+# The exact, unmodified policy AWS publishes for this controller
+# (kubernetes-sigs/aws-load-balancer-controller docs/install/iam_policy.json) - kept as a
+# static file rather than rewritten in HCL, so it's trivially diffable against upstream
+# instead of silently drifting from whatever AWS actually documents.
+resource "aws_iam_role_policy" "lb_controller" {
+  name   = "aws-load-balancer-controller"
+  role   = aws_iam_role.lb_controller.id
+  policy = file("${path.module}/policies/aws-load-balancer-controller.json")
+}
+
+resource "aws_eks_pod_identity_association" "lb_controller" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = var.lb_controller_namespace
+  service_account = var.lb_controller_service_account
+  role_arn        = aws_iam_role.lb_controller.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
