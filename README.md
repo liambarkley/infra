@@ -23,6 +23,21 @@ workspace (not part of this repo).
 - Remote state in S3 with a DynamoDB lock table; see `bootstrap-state/README.md` for how that
   backend itself gets created.
 
+## Git hooks
+
+This repo is public. `scripts/git-hooks/pre-push` runs `gitleaks` against the full history plus
+two custom checks (a tracked `.tfstate`/`.tfvars` file, a bare 12-digit AWS account ID) on every
+push, and blocks it if any of the three find something - the same three checks that were run by
+hand before making this repo public (see `docs/PLAN.md`'s phase 2 notes for why).
+
+Not wired up by git on its own - each clone needs to opt in once:
+
+```
+git config core.hooksPath scripts/git-hooks
+```
+
+Requires `gitleaks` (`brew install gitleaks`).
+
 <!-- CI smoke test: confirms fmt/validate/tflint/checkov all run on a PR -->
 
 <!-- CI smoke test: confirms the plan job now authenticates via OIDC correctly -->
