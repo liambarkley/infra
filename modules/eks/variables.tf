@@ -29,6 +29,18 @@ variable "cluster_endpoint_public_access_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "cluster_admin_role_name_regex" {
+  description = <<-EOT
+    Regex matching IAM role names (under /aws-reserved/sso.amazonaws.com/) that should get
+    cluster-admin access via an EKS access entry - looked up dynamically with
+    data.aws_iam_roles so the account ID embedded in the matched role's ARN never has to be
+    written into this repo. Default matches this project's AdministratorAccess Identity Center
+    permission set role (landing-zone's platform-admins group).
+  EOT
+  type        = string
+  default     = "^AWSReservedSSO_AdministratorAccess_.*$"
+}
+
 variable "system_node_instance_types" {
   description = "Instance types for the small, always-on, on-demand system node group that runs ArgoCD and the Karpenter controller - deliberately not on spot, so controlling capacity can't itself be interrupted."
   type        = list(string)

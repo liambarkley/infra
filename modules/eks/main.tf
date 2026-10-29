@@ -77,10 +77,14 @@ resource "aws_eks_cluster" "this" {
   # .github/workflows/ci.yml - ongoing ingestion/storage cost, picked up in phase 4
   # (observability), not skipped forever.
 
-  # API only, no aws-auth ConfigMap: the IAM principal running `terraform apply` gets an
-  # implicit admin access entry (bootstrap_cluster_creator_admin_permissions, default true),
-  # and Karpenter's node role gets its own explicit access entry below. Nothing here needs the
-  # legacy ConfigMap-based mapping.
+  # API only, no aws-auth ConfigMap: cluster-admin access is granted via the explicit access
+  # entries below, not the implicit "cluster creator gets admin" mechanism
+  # (bootstrap_cluster_creator_admin_permissions, which AWS's own docs say defaults true) - the
+  # first real apply showed that mechanism doesn't actually produce an access entry in
+  # practice (confirmed via `aws eks list-access-entries` right after a successful apply: only
+  # the EKS service-linked role and the Karpenter node role were present). Explicit entries are
+  # also just better practice regardless - reviewable in a diff, not dependent on who happened
+  # to run `apply`.
   access_config {
     authentication_mode = "API"
   }
@@ -88,6 +92,33 @@ resource "aws_eks_cluster" "this" {
   depends_on = [aws_iam_role_policy_attachment.cluster_policy]
 
   tags = merge(local.tags, { Name = var.name })
+}
+
+# Cluster-admin access for whoever holds the AdministratorAccess Identity Center permission set
+# in this account (platform-admins, per landing-zone) - looked up by name pattern rather than
+# hardcoded, so the account ID embedded in the role's ARN never has to be written here.
+data "aws_iam_roles" "cluster_admin" {
+  name_regex  = var.cluster_admin_role_name_regex
+  path_prefix = "/aws-reserved/sso.amazonaws.com/"
+}
+
+resource "aws_eks_access_entry" "cluster_admin" {
+  for_each      = data.aws_iam_roles.cluster_admin.arns
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+}
+
+resource "aws_eks_access_policy_association" "cluster_admin" {
+  for_each      = data.aws_iam_roles.cluster_admin.arns
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.cluster_admin]
 }
 
 # --- IRSA (OIDC provider) - used by the EBS CSI driver's addon role below ---
