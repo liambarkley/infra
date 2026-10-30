@@ -14,9 +14,16 @@
 # the resources-finalizer.argocd.argoproj.io finalizer (confirmed before relying on this), so
 # deleting the Application cascades through every resource it owns - and each of those
 # (Ingress, PVC) has its own finalizer blocking its own removal until the ALB/EBS volume are
-# actually gone on AWS's side - before the Application object itself disappears. No fight with
-# reconciliation, and no manual per-resource deletes to keep in sync with what each app
-# actually contains.
+# actually gone on AWS's side - before the Application object itself disappears.
+#
+# That fixed the first failure, but not the second: root-app (the app-of-apps root) also has
+# selfHeal on, and it tracks every apps/<name>/application.yaml as one of ITS OWN managed
+# resources - so deleting build-cache-node's Application just got fought one level up instead,
+# with root-app recreating it within seconds of the first fix "working." Pausing root-app's
+# own automated sync first (removing spec.syncPolicy.automated via a merge patch) stops that.
+# Nothing needs to restore it afterward - the whole cluster, including this live patch, is
+# destroyed by the end of this script anyway, and the next `terraform apply` creates a brand
+# new root-app from the unmodified, git-committed chart regardless.
 #
 # Run by hand - never run by Claude Code (CLAUDE.md's hard rule: no `terraform destroy`, no
 # `kubectl delete`). This is the "down" half of docs/PLAN.md's "make up / make down" guardrail
@@ -99,12 +106,21 @@ karpenter_nodes_are_gone() {
   [[ "$(kubectl get nodes -l karpenter.sh/nodepool --no-headers 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]]
 }
 
+root_app_automated_sync_is_off() {
+  [[ "$(kubectl get application root-app -n argocd -o jsonpath='{.spec.syncPolicy.automated}' 2>/dev/null)" == "" ]]
+}
+
 if ! kubectl get nodes >/dev/null 2>&1; then
   log "Cluster unreachable (kubeconfig stale, or the cluster's already gone) - skipping Kubernetes cleanup steps."
   log "If the cluster genuinely still exists, fix kubeconfig first:"
   log "  aws eks update-kubeconfig --name $CLUSTER_NAME --region $REGION --profile $PROFILE"
 else
-  log "Step 1/4: deleting the build-cache-node Application (cascades through its Ingress, so"
+  log "Step 1/5: pausing root-app's automated sync, so deleting its children below doesn't"
+  log "just get self-healed back a level up..."
+  kubectl patch application root-app -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+  wait_for "root-app automated sync" root_app_automated_sync_is_off
+
+  log "Step 2/5: deleting the build-cache-node Application (cascades through its Ingress, so"
   log "the ALB controller deprovisions the ALB, and its PVC, so the EBS volume gets deleted -"
   log "each resource's own finalizer blocks the cascade until that's actually confirmed)..."
   kubectl delete application build-cache-node -n argocd --ignore-not-found
@@ -114,18 +130,18 @@ else
   wait_for "ALB" alb_is_gone
   wait_for "PVC-backed EBS volume" pvc_volume_is_gone
 
-  log "Step 2/4: deleting the demo-spring-app Application (frees the Karpenter-provisioned"
+  log "Step 3/5: deleting the demo-spring-app Application (frees the Karpenter-provisioned"
   log "node(s) it was running on, so they're not needed by the time the next step runs)..."
   kubectl delete application demo-spring-app -n argocd --ignore-not-found
   wait_for "demo-spring-app Application" application_is_gone demo-spring-app
 
-  log "Step 3/4: deleting any remaining Karpenter NodeClaims (terminates any EC2 instances it"
+  log "Step 4/5: deleting any remaining Karpenter NodeClaims (terminates any EC2 instances it"
   log "launched - Karpenter's own consolidation would eventually do this on its own now that"
   log "demo-spring-app is gone, but not waiting on that)..."
   kubectl delete nodeclaim --all --ignore-not-found
   wait_for "Karpenter-provisioned node(s)" karpenter_nodes_are_gone
 
-  log "Step 4/4: Kubernetes-side cleanup confirmed done."
+  log "Step 5/5: Kubernetes-side cleanup confirmed done."
 fi
 
 log "Running terraform destroy in envs/dev - not the foundational pieces (landing-zone,"
