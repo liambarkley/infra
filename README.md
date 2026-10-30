@@ -7,10 +7,11 @@ workspace (not part of this repo).
 
 ## Layout
 
-- `modules/` — one module per concern (`network`, `eks`, `bootstrap`, `storage`). Environments
-  only wire modules together; no resources live directly under `envs/`. `eks` and `bootstrap`
-  are built as of phase 2; `storage` is still phase 5.
+- `modules/` — one module per concern (`network`, `eks`, `bootstrap`, `rds`, `storage`).
+  Environments only wire modules together; no resources live directly under `envs/`. `storage`
+  is still phase 5.
 - `envs/dev/` — the only environment currently run.
+- `scripts/down.sh` — tears down `envs/dev` in the right order (see "Teardown" below).
 - `bootstrap-state/` — one-off config (local backend) that creates the S3 bucket + DynamoDB table
   used as remote state backend for everything else. Applied once, by hand.
 - `policy/` — OPA/conftest rules evaluated against `terraform plan` JSON in CI.
@@ -22,6 +23,27 @@ workspace (not part of this repo).
 - Every resource tagged `project=build-cache`.
 - Remote state in S3 with a DynamoDB lock table; see `bootstrap-state/README.md` for how that
   backend itself gets created.
+
+## Teardown
+
+`scripts/down.sh` destroys `envs/dev` only (never the foundational pieces - `landing-zone`,
+`ci-oidc`, `log-archive`, `bootstrap-state` - which stay applied between sessions). Automates
+the part that's easy to get wrong by hand: three AWS resources on this cluster are created by
+controllers, not Terraform (the Build Cache Node's ALB, its PVC-backed EBS volume, any EC2
+instances Karpenter provisioned) - `terraform destroy` has no idea they exist, so the script
+deletes each from Kubernetes and polls AWS until it's actually gone before moving on, and only
+then runs `terraform destroy` itself.
+
+```
+./scripts/down.sh                        # terraform destroy still asks for confirmation
+./scripts/down.sh --yes                  # skip that confirmation too
+./scripts/down.sh --profile <aws-profile>
+```
+
+Run by hand - never by Claude Code, same as `terraform destroy`/`kubectl delete` directly.
+This is the "down" half of `docs/PLAN.md`'s `make up`/`make down` guardrail; a plain
+`terraform apply` in `envs/dev` is already one command for "up", so there's no script for that
+side yet.
 
 ## Git hooks
 
