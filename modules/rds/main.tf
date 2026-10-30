@@ -77,3 +77,18 @@ resource "aws_db_instance" "this" {
 
   tags = merge(local.tags, { Name = var.name })
 }
+
+# The instance's address changes every time this is destroyed and recreated (AWS generates a
+# random subdomain, same class of problem as the VPC ID the ALB controller auto-detects rather
+# than anyone hardcoding) - storing it here means platform/apps/demo-spring-app never needs an
+# environment-specific hostname written into a committed manifest. Not a secret (a hostname by
+# itself grants no access - the security group is the actual control), so a plain String
+# parameter, not SecureString.
+resource "aws_ssm_parameter" "address" {
+  name = "/${var.name}/rds/address"
+  # SecureString with the default AWS-managed key, not plain String - free, no extra IAM
+  # grant needed (unlike a customer-managed KMS key), and there's no reason not to.
+  type  = "SecureString"
+  value = aws_db_instance.this.address
+  tags  = local.tags
+}

@@ -32,3 +32,13 @@ output "security_group_id" {
   description = "ID of the security group attached to this instance."
   value       = aws_security_group.this.id
 }
+
+output "address_parameter_name" {
+  description = "SSM Parameter Store name holding the instance's address - the demo app reads this at runtime so no environment-specific hostname has to live in platform/apps/demo-spring-app."
+  value       = aws_ssm_parameter.address.name
+}
+
+output "address_parameter_arn" {
+  description = "ARN of the same parameter, for scoping the demo app's IAM role to read exactly this one."
+  value       = aws_ssm_parameter.address.arn
+}

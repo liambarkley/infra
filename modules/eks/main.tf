@@ -581,3 +581,61 @@ resource "aws_eks_pod_identity_association" "lb_controller" {
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
+
+# --- demo-spring-app: Pod Identity, scoped to exactly the two values it needs to read at
+# startup (the RDS master password, the RDS address) - no account ID, no environment-specific
+# hostname, in platform/apps/demo-spring-app as a result. Two separate statements, not one
+# combined list, so each action is only ever paired with the resource type it's actually valid
+# against. ---
+
+resource "aws_iam_role" "demo_app" {
+  name = "${var.name}-demo-app"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "demo_app" {
+  count = length(var.demo_app_secretsmanager_arns) > 0 ? 1 : 0
+
+  statement {
+    sid       = "ReadDbPassword"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = var.demo_app_secretsmanager_arns
+  }
+
+  dynamic "statement" {
+    for_each = length(var.demo_app_ssm_parameter_arns) > 0 ? [1] : []
+    content {
+      sid       = "ReadDbAddress"
+      effect    = "Allow"
+      actions   = ["ssm:GetParameter"]
+      resources = var.demo_app_ssm_parameter_arns
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "demo_app" {
+  count  = length(var.demo_app_secretsmanager_arns) > 0 ? 1 : 0
+  name   = "demo-app-secrets"
+  role   = aws_iam_role.demo_app.id
+  policy = data.aws_iam_policy_document.demo_app[0].json
+}
+
+resource "aws_eks_pod_identity_association" "demo_app" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = var.demo_app_namespace
+  service_account = var.demo_app_service_account
+  role_arn        = aws_iam_role.demo_app.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}

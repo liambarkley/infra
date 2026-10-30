@@ -23,6 +23,14 @@ module "eks" {
   private_subnet_ids = module.network.private_subnet_ids
   public_subnet_ids  = module.network.public_subnet_ids
 
+  # Not a module cycle, despite module.rds also taking an output from this module
+  # (cluster_security_group_id) - these are different resources within each module, so
+  # Terraform's graph interleaves them: the cluster and its security group exist long before
+  # RDS does, and only this module's demo-app-specific IAM resources (evaluated separately,
+  # late) wait on RDS's secret ARN.
+  demo_app_secretsmanager_arns = [module.rds.master_user_secret_arn]
+  demo_app_ssm_parameter_arns  = [module.rds.address_parameter_arn]
+
   tags = {
     environment = "dev"
   }

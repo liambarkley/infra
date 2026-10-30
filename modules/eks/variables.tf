@@ -99,6 +99,30 @@ variable "lb_controller_service_account" {
   default     = "aws-load-balancer-controller"
 }
 
+variable "demo_app_namespace" {
+  description = "Namespace the demo Spring app runs in - must match platform/apps/demo-spring-app's manifests."
+  type        = string
+  default     = "demo-spring-app"
+}
+
+variable "demo_app_service_account" {
+  description = "Service account name the demo Spring app runs as - must match platform/apps/demo-spring-app's manifests."
+  type        = string
+  default     = "demo-spring-app"
+}
+
+variable "demo_app_secretsmanager_arns" {
+  description = "Secrets Manager secret ARNs the demo app's Pod Identity role may call secretsmanager:GetSecretValue on - typically modules/rds's master_user_secret_arn output."
+  type        = list(string)
+  default     = []
+}
+
+variable "demo_app_ssm_parameter_arns" {
+  description = "SSM Parameter Store ARNs the demo app's Pod Identity role may call ssm:GetParameter on - typically modules/rds's address_parameter_arn output."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Extra tags merged onto every resource, in addition to project = build-cache."
   type        = map(string)
