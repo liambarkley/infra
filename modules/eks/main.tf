@@ -352,6 +352,27 @@ resource "aws_eks_addon" "ebs_csi" {
 # this policy regardless (inline checkov:skip doesn't resolve against a data source in the
 # installed checkov version); skipped at the CI workflow level instead - see ci.yml.
 data "aws_iam_policy_document" "karpenter_controller" {
+  # Missing from the start, not caught until the live cluster actually tried to launch a spot
+  # node: "AuthFailure.ServiceLinkedRoleCreationNotPermitted" - this account had never used
+  # EC2 Spot before, so AWSServiceRoleForEC2Spot didn't exist yet, and nothing here could
+  # create it. Karpenter's own NodePool fallback (capacity-type allows both spot and
+  # on-demand) masked it by launching on-demand instead - worth knowing, since it means every
+  # future spot attempt would keep failing the same way, quietly defeating the actual reason
+  # to use spot, until this was fixed.
+  statement {
+    sid    = "AllowSpotServiceLinkedRoleCreation"
+    effect = "Allow"
+    actions = [
+      "iam:CreateServiceLinkedRole",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["spot.amazonaws.com"]
+    }
+  }
+
   statement {
     sid    = "AllowScopedEC2InstanceAccess"
     effect = "Allow"
