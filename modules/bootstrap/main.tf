@@ -24,6 +24,14 @@ locals {
     (!local.using_static_creds && var.aws_profile != "") ? {
       AWS_PROFILE = var.aws_profile
     } : {},
+    # Not read by `aws eks get-token` - exists purely so this provider's config (and
+    # therefore every resource using it, including both helm_release resources below)
+    # carries a real dependency on the cluster-admin access entry, the same way
+    # cluster_endpoint/cluster_certificate_authority_data already make this provider depend
+    # on the cluster itself. See var.cluster_admin_access_ready's description for why.
+    {
+      TF_DEPENDS_ON_CLUSTER_ADMIN_ACCESS = join(",", var.cluster_admin_access_ready)
+    },
   )
 
   exec_auth = {

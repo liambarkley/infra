@@ -47,3 +47,18 @@ output "cluster_security_group_id" {
   EOT
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }
+
+output "cluster_admin_access_ready" {
+  description = <<-EOT
+    Exists only so modules/bootstrap can create an *implicit* dependency on the cluster-admin
+    access entry by actually referencing this value (not functionally, just enough for
+    Terraform's graph to see it) - modules/bootstrap has its own local provider
+    configurations, which Terraform refuses to let a module-level `depends_on` touch at all.
+    Without this, nothing tells Terraform that bootstrap's helm releases (which need this
+    access entry's RBAC grant to even call the Kubernetes API) must be destroyed before the
+    access entry itself - found live, the hard way: a real `terraform destroy` destroyed the
+    access entry first, and `helm uninstall` then failed outright ("cannot list resource
+    secrets"), stuck until the access entry was manually re-applied to unblock it.
+  EOT
+  value       = [for v in aws_eks_access_policy_association.cluster_admin : v.id]
+}

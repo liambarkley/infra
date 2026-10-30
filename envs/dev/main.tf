@@ -43,6 +43,10 @@ module "bootstrap" {
   cluster_endpoint                   = module.eks.cluster_endpoint
   cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
   aws_region                         = var.aws_region
+  # See both modules' descriptions of this value for why it's passed through at all - it
+  # forces bootstrap's helm releases to be destroyed before the cluster-admin access entry
+  # they depend on to even reach the cluster's API, not before or concurrently with it.
+  cluster_admin_access_ready = module.eks.cluster_admin_access_ready
 
   # Same credentials as this config's own `aws` provider (provider.tf) - the exec plugin that
   # authenticates kubernetes/helm against the cluster needs its own copy, since it runs `aws`

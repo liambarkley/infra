@@ -80,3 +80,17 @@ variable "apps_path" {
   type        = string
   default     = "apps"
 }
+
+variable "cluster_admin_access_ready" {
+  description = <<-EOT
+    modules/eks's cluster_admin_access_ready output - not used for any actual value here,
+    only referenced (in the exec plugin's env, see main.tf) so Terraform's dependency graph
+    sees that this module's helm releases depend on the cluster-admin access entry. A
+    module-level `depends_on` can't express this directly: this module has its own local
+    provider configurations, which Terraform refuses to let `depends_on` touch. See
+    modules/eks/outputs.tf's description on cluster_admin_access_ready for why this matters -
+    found live, on a real `terraform destroy`, not hypothetically.
+  EOT
+  type        = list(string)
+  default     = []
+}
