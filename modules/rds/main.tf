@@ -92,3 +92,16 @@ resource "aws_ssm_parameter" "address" {
   value = aws_db_instance.this.address
   tags  = local.tags
 }
+
+# The master_user_secret's ARN is AWS-generated (a random UUID baked into it, not just this
+# resource's own account ID) and changes on every destroy/recreate too - same reasoning as the
+# address parameter above. Storing it here, under a name built only from var.name, means
+# platform/apps/demo-spring-app's init container only ever needs one fixed, deterministic SSM
+# parameter name to discover which secret to read - never the secret's own ARN, and never an
+# account ID, written into a committed manifest.
+resource "aws_ssm_parameter" "secret_arn" {
+  name  = "/${var.name}/rds/secret-arn"
+  type  = "SecureString"
+  value = aws_db_instance.this.master_user_secret[0].secret_arn
+  tags  = local.tags
+}

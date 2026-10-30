@@ -29,7 +29,7 @@ module "eks" {
   # RDS does, and only this module's demo-app-specific IAM resources (evaluated separately,
   # late) wait on RDS's secret ARN.
   demo_app_secretsmanager_arns = [module.rds.master_user_secret_arn]
-  demo_app_ssm_parameter_arns  = [module.rds.address_parameter_arn]
+  demo_app_ssm_parameter_arns  = [module.rds.address_parameter_arn, module.rds.secret_arn_parameter_arn]
 
   tags = {
     environment = "dev"

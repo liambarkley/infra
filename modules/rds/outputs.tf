@@ -42,3 +42,13 @@ output "address_parameter_arn" {
   description = "ARN of the same parameter, for scoping the demo app's IAM role to read exactly this one."
   value       = aws_ssm_parameter.address.arn
 }
+
+output "secret_arn_parameter_name" {
+  description = "SSM Parameter Store name holding master_user_secret_arn's value - the demo app's init container reads this fixed, deterministic name first, to discover which Secrets Manager secret to actually read (that ARN is AWS-generated and changes on recreate, same as the address)."
+  value       = aws_ssm_parameter.secret_arn.name
+}
+
+output "secret_arn_parameter_arn" {
+  description = "ARN of the same parameter, for scoping the demo app's IAM role to read exactly this one."
+  value       = aws_ssm_parameter.secret_arn.arn
+}
