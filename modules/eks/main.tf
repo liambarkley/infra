@@ -386,6 +386,12 @@ data "aws_iam_policy_document" "karpenter_controller" {
     resources = ["*"]
   }
 
+  # StringEquals with "*" checks for a tag value that's literally the character "*" - not a
+  # wildcard match - so this never actually matched any real instance. Found live, the hard
+  # way: Karpenter drained and detached volumes from two nodes correctly during a teardown,
+  # then failed to terminate either one ("UnauthorizedOperation: ... is not authorized to
+  # perform: ec2:TerminateInstances"), stuck until the instances were terminated by hand.
+  # StringLike actually supports wildcards; this is the fix.
   statement {
     sid    = "AllowScopedEC2InstanceTermination"
     effect = "Allow"
@@ -394,7 +400,7 @@ data "aws_iam_policy_document" "karpenter_controller" {
     ]
     resources = ["*"]
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "ec2:ResourceTag/karpenter.sh/nodepool"
       values   = ["*"]
     }
