@@ -121,13 +121,18 @@ else
   wait_for "root-app automated sync" root_app_automated_sync_is_off
 
   log "Step 2/5: deleting the build-cache-node Application (cascades through its Ingress, so"
-  log "the ALB controller deprovisions the ALB, and its PVC, so the EBS volume gets deleted -"
-  log "each resource's own finalizer blocks the cascade until that's actually confirmed)..."
+  log "the ALB controller deprovisions the ALB - each resource's own finalizer blocks the"
+  log "cascade until that's actually confirmed)..."
   kubectl delete application build-cache-node -n argocd --ignore-not-found
   wait_for "build-cache-node Application" application_is_gone build-cache-node
-  # Belt and suspenders: confirm directly on AWS too, in case a finalizer ever behaves
-  # differently than expected.
   wait_for "ALB" alb_is_gone
+
+  # The StatefulSet's PVC does NOT go with it: found the hard way - Kubernetes deliberately
+  # retains StatefulSet-generated PVCs on deletion by default (data safety), and since this
+  # PVC is auto-generated from volumeClaimTemplates rather than a manifest ArgoCD applied
+  # directly, the Application's own cascade doesn't touch it either. Explicit delete, which
+  # does trigger the gp3 StorageClass's reclaimPolicy: Delete properly.
+  kubectl delete pvc data-build-cache-node-0 -n build-cache-node --ignore-not-found
   wait_for "PVC-backed EBS volume" pvc_volume_is_gone
 
   log "Step 3/5: deleting the demo-spring-app Application (frees the Karpenter-provisioned"
