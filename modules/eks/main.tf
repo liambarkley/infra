@@ -670,8 +670,11 @@ resource "aws_eks_pod_identity_association" "demo_app" {
 # --- CloudWatch exporter (YACE): Phase 4's substitute for the Build Cache Node's missing
 # metrics endpoint - read-only access to the ALB's own free CloudWatch metrics
 # (HTTPCode_Target_2XX/4XX_Count as a cache hit/miss proxy, TargetResponseTime for latency).
-# cloudwatch:GetMetricData/ListMetrics/GetMetricStatistics have no resource-level ARNs to scope
-# to (AWS's own managed policies for these use "*" too) - read-only is the real boundary here. ---
+# cloudwatch:GetMetricData/ListMetrics/GetMetricStatistics and tag:GetResources (YACE's
+# documented bare-minimum policy for any discovery job - it finds the ALB by its
+# project=build-cache tag rather than a hardcoded ARN, since that ARN changes every time the
+# AWS Load Balancer Controller recreates it) have no resource-level ARNs to scope to (AWS's own
+# managed policies for these use "*" too) - read-only is the real boundary here. ---
 
 resource "aws_iam_role" "cloudwatch_exporter" {
   name = "${var.name}-cloudwatch-exporter"
@@ -696,6 +699,7 @@ data "aws_iam_policy_document" "cloudwatch_exporter" {
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",
       "cloudwatch:GetMetricStatistics",
+      "tag:GetResources",
     ]
     resources = ["*"]
   }
