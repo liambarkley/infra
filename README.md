@@ -11,6 +11,7 @@ workspace (not part of this repo).
   Environments only wire modules together; no resources live directly under `envs/`. `storage`
   is still phase 5.
 - `envs/dev/` — the only environment currently run.
+- `scripts/up.sh` — brings `envs/dev` up (see "Bring-up" below).
 - `scripts/down.sh` — tears down `envs/dev` in the right order (see "Teardown" below).
 - `bootstrap-state/` — one-off config (local backend) that creates the S3 bucket + DynamoDB table
   used as remote state backend for everything else. Applied once, by hand.
@@ -23,6 +24,25 @@ workspace (not part of this repo).
 - Every resource tagged `project=build-cache`.
 - Remote state in S3 with a DynamoDB lock table; see `bootstrap-state/README.md` for how that
   backend itself gets created.
+
+## Bring-up
+
+`scripts/up.sh` brings `envs/dev` up. Handles a real Terraform limitation found live on a
+from-scratch apply straight off a fully-destroyed state: `module.rds`'s `for_each` depends on
+`module.eks.cluster_security_group_id`, which is unknown until the cluster exists, so a single
+`terraform apply` refuses to plan it ("Invalid for_each argument"). The script always applies
+`module.network` + `module.eks` first (a no-op if already applied) before the full apply, then
+refreshes kubeconfig and waits for ArgoCD to sync root-app and its four child apps `Healthy`.
+
+```
+./scripts/up.sh                        # terraform apply still asks for confirmation, twice
+./scripts/up.sh --yes                  # skip both confirmations
+./scripts/up.sh --profile <aws-profile>
+```
+
+Prints the Build Cache Node's new ALB hostname at the end - it changes every time the ALB is
+recreated from scratch, so updating `demo-spring-app`'s `BUILD_CACHE_URL` repo variable to match
+is a manual step on purpose, not something this script does for you.
 
 ## Teardown
 
@@ -41,9 +61,8 @@ then runs `terraform destroy` itself.
 ```
 
 Run by hand - never by Claude Code, same as `terraform destroy`/`kubectl delete` directly.
-This is the "down" half of `docs/PLAN.md`'s `make up`/`make down` guardrail; a plain
-`terraform apply` in `envs/dev` is already one command for "up", so there's no script for that
-side yet.
+This is the "down" half of `docs/PLAN.md`'s `make up`/`make down` guardrail - see "Bring-up"
+above for the other half.
 
 ## Git hooks
 
