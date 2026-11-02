@@ -666,3 +666,101 @@ resource "aws_eks_pod_identity_association" "demo_app" {
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
+
+# --- CloudWatch exporter (YACE): Phase 4's substitute for the Build Cache Node's missing
+# metrics endpoint - read-only access to the ALB's own free CloudWatch metrics
+# (HTTPCode_Target_2XX/4XX_Count as a cache hit/miss proxy, TargetResponseTime for latency).
+# cloudwatch:GetMetricData/ListMetrics/GetMetricStatistics have no resource-level ARNs to scope
+# to (AWS's own managed policies for these use "*" too) - read-only is the real boundary here. ---
+
+resource "aws_iam_role" "cloudwatch_exporter" {
+  name = "${var.name}-cloudwatch-exporter"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "cloudwatch_exporter" {
+  statement {
+    sid    = "ReadOnlyMetrics"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:GetMetricData",
+      "cloudwatch:ListMetrics",
+      "cloudwatch:GetMetricStatistics",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "cloudwatch_exporter" {
+  name   = "cloudwatch-read-only"
+  role   = aws_iam_role.cloudwatch_exporter.id
+  policy = data.aws_iam_policy_document.cloudwatch_exporter.json
+}
+
+resource "aws_eks_pod_identity_association" "cloudwatch_exporter" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = var.cloudwatch_exporter_namespace
+  service_account = var.cloudwatch_exporter_service_account
+  role_arn        = aws_iam_role.cloudwatch_exporter.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+# --- Alertmanager: read-only access to exactly one Secrets Manager secret (modules/alerting's
+# raw SES SMTP IAM access key) - the initContainer derives the actual SMTP password from it at
+# pod startup. Same shape as demo_app's secret access above, scoped to one ARN instead of a
+# list since there's only ever one. ---
+
+resource "aws_iam_role" "alertmanager" {
+  count = var.alertmanager_smtp_key_secret_arn != "" ? 1 : 0
+  name  = "${var.name}-alertmanager"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "alertmanager" {
+  count = var.alertmanager_smtp_key_secret_arn != "" ? 1 : 0
+
+  statement {
+    sid       = "ReadSesSmtpKey"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.alertmanager_smtp_key_secret_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "alertmanager" {
+  count  = var.alertmanager_smtp_key_secret_arn != "" ? 1 : 0
+  name   = "read-ses-smtp-key"
+  role   = aws_iam_role.alertmanager[0].id
+  policy = data.aws_iam_policy_document.alertmanager[0].json
+}
+
+resource "aws_eks_pod_identity_association" "alertmanager" {
+  count           = var.alertmanager_smtp_key_secret_arn != "" ? 1 : 0
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = var.alertmanager_namespace
+  service_account = var.alertmanager_service_account
+  role_arn        = aws_iam_role.alertmanager[0].arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}

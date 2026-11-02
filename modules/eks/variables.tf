@@ -123,6 +123,36 @@ variable "demo_app_ssm_parameter_arns" {
   default     = []
 }
 
+variable "cloudwatch_exporter_namespace" {
+  description = "Namespace the CloudWatch exporter (YACE) runs in - must match platform/apps/monitoring's manifest. Phase 4: the Build Cache Node has no native Prometheus endpoint (confirmed against the official BCN manual - centralized monitoring is a Develocity-registration-only feature this project deliberately doesn't use), so cache hit rate and latency come from the ALB's own free CloudWatch metrics instead."
+  type        = string
+  default     = "monitoring"
+}
+
+variable "cloudwatch_exporter_service_account" {
+  description = "Service account name the CloudWatch exporter (YACE) runs as - must match platform/apps/monitoring's manifest."
+  type        = string
+  default     = "cloudwatch-exporter"
+}
+
+variable "alertmanager_namespace" {
+  description = "Namespace Alertmanager runs in - must match platform/apps/monitoring's kube-prometheus-stack release."
+  type        = string
+  default     = "monitoring"
+}
+
+variable "alertmanager_service_account" {
+  description = "Service account name Alertmanager's pod runs as - must match platform/apps/monitoring's kube-prometheus-stack values (alertmanager.serviceAccount.name)."
+  type        = string
+  default     = "alertmanager"
+}
+
+variable "alertmanager_smtp_key_secret_arn" {
+  description = "Secrets Manager secret ARN (modules/alerting's smtp_key_secret_arn output) that Alertmanager's initContainer may call secretsmanager:GetSecretValue on, to derive its SES SMTP password at pod startup. Empty skips creating the role/association entirely."
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Extra tags merged onto every resource, in addition to project = build-cache."
   type        = map(string)

@@ -31,6 +31,23 @@ module "eks" {
   demo_app_secretsmanager_arns = [module.rds.master_user_secret_arn]
   demo_app_ssm_parameter_arns  = [module.rds.address_parameter_arn, module.rds.secret_arn_parameter_arn]
 
+  # Same non-cycle reasoning as module.rds above, now for module.alerting's secret.
+  alertmanager_smtp_key_secret_arn = module.alerting.smtp_key_secret_arn
+
+  tags = {
+    environment = "dev"
+  }
+}
+
+module "alerting" {
+  source = "../../modules/alerting"
+
+  name = "build-cache-dev"
+  # Liam's own address - this is a single-operator demo, so the SES sandbox's "From and To
+  # must both be verified" requirement is satisfied by one identity. See
+  # modules/alerting/README.md for the manual verification-email step this still needs.
+  sender_email = "liambarkley@gmail.com"
+
   tags = {
     environment = "dev"
   }
