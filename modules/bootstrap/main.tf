@@ -1,73 +1,8 @@
-# Both providers authenticate with a short-lived token from `aws eks get-token`, via the exec
-# plugin, rather than a data source - a data source would need the cluster to already exist at
-# plan time in a way that breaks the very first `terraform plan` against a brand-new cluster in
-# the same apply. The `aws` CLI binary itself must be on PATH wherever this runs (it already is,
-# on GitHub's ubuntu-latest runners and on a Homebrew-provisioned Mac - see CLAUDE.md).
-#
-# The exec plugin runs `aws` as a plain subprocess - it does NOT inherit the `profile`/static
-# credentials given to this module's own `aws` provider calls elsewhere in this config, only
-# whatever's in its own `env` block below plus the ambient shell environment. Omitting `env`
-# here was the actual cause of the first real apply's "Kubernetes cluster unreachable: the
-# server has asked for the client to provide credentials" failure (2026-10-29): the subprocess
-# had no AWS credentials of its own, so `aws eks get-token` either failed or (depending on what
-# else happened to be in the shell) authenticated as the wrong principal - cluster, node group
-# and every addon had already applied fine by that point, since none of those depend on this.
-locals {
-  using_static_creds = var.aws_access_key_id != ""
-
-  exec_env = merge(
-    local.using_static_creds ? {
-      AWS_ACCESS_KEY_ID     = var.aws_access_key_id
-      AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
-      AWS_SESSION_TOKEN     = var.aws_session_token
-    } : {},
-    (!local.using_static_creds && var.aws_profile != "") ? {
-      AWS_PROFILE = var.aws_profile
-    } : {},
-    # Not read by `aws eks get-token` - exists purely so this provider's config (and
-    # therefore every resource using it, including both helm_release resources below)
-    # carries a real dependency on the cluster-admin access entry, the same way
-    # cluster_endpoint/cluster_certificate_authority_data already make this provider depend
-    # on the cluster itself. See var.cluster_admin_access_ready's description for why.
-    {
-      TF_DEPENDS_ON_CLUSTER_ADMIN_ACCESS = join(",", var.cluster_admin_access_ready)
-    },
-  )
-
-  exec_auth = {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args = [
-      "eks", "get-token",
-      "--cluster-name", var.cluster_name,
-      "--region", var.aws_region,
-    ]
-  }
-}
-
-provider "kubernetes" {
-  host                   = var.cluster_endpoint
-  cluster_ca_certificate = base64decode(var.cluster_certificate_authority_data)
-  exec {
-    api_version = local.exec_auth.api_version
-    command     = local.exec_auth.command
-    args        = local.exec_auth.args
-    env         = local.exec_env
-  }
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = var.cluster_endpoint
-    cluster_ca_certificate = base64decode(var.cluster_certificate_authority_data)
-    exec {
-      api_version = local.exec_auth.api_version
-      command     = local.exec_auth.command
-      args        = local.exec_auth.args
-      env         = local.exec_env
-    }
-  }
-}
+# The kubernetes/helm provider configurations this module's resources use live in the calling
+# root module (envs/dev/provider.tf), not here - see that file's comment for why. This module
+# declares no `provider` block of its own, so it inherits the root's default (unaliased)
+# kubernetes/helm providers implicitly, and the module call in envs/dev/main.tf can carry a
+# real `depends_on = [module.eks]`.
 
 resource "helm_release" "argocd" {
   name             = "argocd"

@@ -6,6 +6,14 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.78, < 6.0.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = ">= 2.16, < 3.0.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.35, < 3.0.0"
+    }
   }
 
   # Created by ../../bootstrap-state (applied once, by hand, before this backend works) in

@@ -39,25 +39,15 @@ module "eks" {
 module "bootstrap" {
   source = "../../modules/bootstrap"
 
-  cluster_name                       = module.eks.cluster_name
-  cluster_endpoint                   = module.eks.cluster_endpoint
-  cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
-  aws_region                         = var.aws_region
-  # See both modules' descriptions of this value for why it's passed through at all - it
-  # forces bootstrap's helm releases to be destroyed before the cluster-admin access entry
-  # they depend on to even reach the cluster's API, not before or concurrently with it.
-  cluster_admin_access_ready = module.eks.cluster_admin_access_ready
-
-  # Same credentials as this config's own `aws` provider (provider.tf) - the exec plugin that
-  # authenticates kubernetes/helm against the cluster needs its own copy, since it runs `aws`
-  # as a subprocess that doesn't inherit a provider's `profile` argument. See
-  # modules/bootstrap/main.tf's comment on exec_env for why this exists.
-  aws_profile           = var.aws_profile
-  aws_access_key_id     = var.aws_access_key_id
-  aws_secret_access_key = var.aws_secret_access_key
-  aws_session_token     = var.aws_session_token
-
   apps_repo_url = "https://github.com/liambarkley/platform.git"
+
+  # The real fix for bugs #5 and #6 (infra git history, 2026-10-29/2026-11-02): with no local
+  # provider configuration left inside modules/bootstrap (see provider.tf), this module call is
+  # now a plain module Terraform will accept a `depends_on` on. This one edge forces every
+  # resource module.bootstrap manages (ArgoCD, the root Application) to be destroyed before any
+  # resource module.eks manages - the system node group and the cluster-admin access entry
+  # included, without needing a dedicated workaround per resource.
+  depends_on = [module.eks]
 }
 
 module "rds" {

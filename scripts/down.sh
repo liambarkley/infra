@@ -151,6 +151,11 @@ fi
 
 log "Running terraform destroy in envs/dev - not the foundational pieces (landing-zone,"
 log "ci-oidc, log-archive, bootstrap-state), which stay applied."
+log ""
+log "Expect a warning here about ArgoCD's own CRDs being kept (Helm's resource-policy: keep,"
+log "a deliberate safety default that stops a chart uninstall from cascading into deleting"
+log "every custom resource of that type cluster-wide) - harmless on a full teardown like this"
+log "one, since the whole cluster (and therefore those CRDs) is destroyed moments later anyway."
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../envs/dev" && pwd)"
 
