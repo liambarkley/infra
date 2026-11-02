@@ -42,22 +42,34 @@ variable "cluster_admin_role_name_regex" {
 }
 
 variable "system_node_instance_types" {
-  description = "Instance types for the small, always-on, on-demand system node group that runs ArgoCD and the Karpenter controller - deliberately not on spot, so controlling capacity can't itself be interrupted."
+  description = <<-EOT
+    Instance types for the small, always-on, on-demand system node group that runs ArgoCD and
+    the Karpenter controller - deliberately not on spot, so controlling capacity can't itself
+    be interrupted. t3.medium, not t3.small: phase 4 hit the same EKS max-pods ceiling
+    system_node_desired_size documents again, this time for real, live - two of three
+    node-exporter DaemonSet pods stuck permanently Pending ("Too many pods") once
+    kube-prometheus-stack's handful of pods pushed the two t3.small system nodes to 11/11 and
+    10/11. t3.medium's max-pods is 17 (3 ENIs x 5 usable IPs + 2, EKS's standard formula) -
+    comfortably more headroom than t3.small's 11, at roughly double the hourly cost (~US$0.0416
+    -> ~US$0.0832/hr combined for both nodes) - still destroyed between sessions
+    (docs/PLAN.md's cost section), so a few extra cents per session in practice.
+  EOT
   type        = list(string)
-  default     = ["t3.small"]
+  default     = ["t3.medium"]
 }
 
 variable "system_node_desired_size" {
   description = <<-EOT
-    Desired node count for the system node group. 2, not 1: t3.small's EKS max-pods limit is
-    11 - the EKS system daemonsets (vpc-cni, kube-proxy, coredns x2, ebs-csi-controller x2,
-    ebs-csi-node, pod-identity-agent) already use 8 of those on a single node, leaving only 3
-    free - not enough for the argo-cd chart's 7 pods. Confirmed the hard way on the first real
-    apply: argocd-server/repo-server/notifications-controller stuck Pending
-    ("FailedScheduling... 1 Too many pods"), and dex-server crash-looping on a missing secret
-    that argocd-server generates on its own first boot and therefore never created. min/max
-    match desired - this group exists specifically to run ArgoCD plus Karpenter's controller,
-    not to autoscale.
+    Desired node count for the system node group. 2, not 1: at the original t3.small size, EKS
+    max-pods was 11 - the EKS system daemonsets (vpc-cni, kube-proxy, coredns x2,
+    ebs-csi-controller x2, ebs-csi-node, pod-identity-agent) already use 8 of those on a single
+    node, leaving only 3 free - not enough for the argo-cd chart's 7 pods. Confirmed the hard
+    way on the first real apply: argocd-server/repo-server/notifications-controller stuck
+    Pending ("FailedScheduling... 1 Too many pods"), and dex-server crash-looping on a missing
+    secret that argocd-server generates on its own first boot and therefore never created.
+    min/max match desired - this group exists specifically to run ArgoCD plus Karpenter's
+    controller, not to autoscale. (See system_node_instance_types for the same ceiling being
+    hit again in phase 4, this time fixed by sizing up rather than needing a second node.)
   EOT
   type        = number
   default     = 2
