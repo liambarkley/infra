@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tears down infra/envs/dev in the correct order. Three AWS resources here are created by
+# Tears down infra/envs/dev in the correct order. Several AWS resources here are created by
 # cluster-side controllers, not Terraform (the Build Cache Node's ALB, its PVC-backed EBS
-# volume, and any EC2 instances Karpenter provisioned) - `terraform destroy` has no idea any
-# of them exist, so each gets deleted from Kubernetes and confirmed gone on the AWS side
-# first, in order, before Terraform ever runs. Skipping that risks either an orphaned
-# still-billing resource, or a destroy that fails outright on a VPC/subnet something is still
-# attached to.
+# volume, Prometheus's own PVC-backed EBS volume added in phase 4, and any EC2 instances
+# Karpenter provisioned) - `terraform destroy` has no idea any of them exist, so each gets
+# deleted from Kubernetes and confirmed gone on the AWS side first, in order, before Terraform
+# ever runs. Skipping that risks either an orphaned still-billing resource, or a destroy that
+# fails outright on a VPC/subnet something is still attached to.
 #
 # Deletes the ArgoCD Applications themselves (build-cache-node, demo-spring-app), not their
 # individual resources - found the hard way on the first real run: deleting the Ingress/
@@ -97,8 +97,9 @@ alb_is_gone() {
 }
 
 pvc_volume_is_gone() {
+  local pvc_name="$1"
   [[ -z "$(aws ec2 describe-volumes --region "$REGION" --profile "$PROFILE" \
-    --filters "Name=tag:kubernetes.io/created-for/pvc/name,Values=data-build-cache-node-0" \
+    --filters "Name=tag:kubernetes.io/created-for/pvc/name,Values=$pvc_name" \
     --query 'Volumes[].VolumeId' --output text 2>/dev/null)" ]]
 }
 
@@ -115,12 +116,12 @@ if ! kubectl get nodes >/dev/null 2>&1; then
   log "If the cluster genuinely still exists, fix kubeconfig first:"
   log "  aws eks update-kubeconfig --name $CLUSTER_NAME --region $REGION --profile $PROFILE"
 else
-  log "Step 1/5: pausing root-app's automated sync, so deleting its children below doesn't"
+  log "Step 1/6: pausing root-app's automated sync, so deleting its children below doesn't"
   log "just get self-healed back a level up..."
   kubectl patch application root-app -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
   wait_for "root-app automated sync" root_app_automated_sync_is_off
 
-  log "Step 2/5: deleting the build-cache-node Application (cascades through its Ingress, so"
+  log "Step 2/6: deleting the build-cache-node Application (cascades through its Ingress, so"
   log "the ALB controller deprovisions the ALB - each resource's own finalizer blocks the"
   log "cascade until that's actually confirmed)..."
   kubectl delete application build-cache-node -n argocd --ignore-not-found
@@ -133,20 +134,37 @@ else
   # directly, the Application's own cascade doesn't touch it either. Explicit delete, which
   # does trigger the gp3 StorageClass's reclaimPolicy: Delete properly.
   kubectl delete pvc data-build-cache-node-0 -n build-cache-node --ignore-not-found
-  wait_for "PVC-backed EBS volume" pvc_volume_is_gone
+  wait_for "build-cache-node PVC-backed EBS volume" pvc_volume_is_gone data-build-cache-node-0
 
-  log "Step 3/5: deleting the demo-spring-app Application (frees the Karpenter-provisioned"
+  log "Step 3/6: deleting the demo-spring-app Application (frees the Karpenter-provisioned"
   log "node(s) it was running on, so they're not needed by the time the next step runs)..."
   kubectl delete application demo-spring-app -n argocd --ignore-not-found
   wait_for "demo-spring-app Application" application_is_gone demo-spring-app
 
-  log "Step 4/5: deleting any remaining Karpenter NodeClaims (terminates any EC2 instances it"
+  # Added phase 4, same PVC-retention gotcha as build-cache-node's - Prometheus's StatefulSet
+  # (platform/apps/monitoring) has its own 8Gi gp3 volumeClaimTemplate that doesn't go with
+  # the Application's cascade delete either. Alertmanager has no storageSpec configured, so
+  # no PVC of its own to worry about. The PVC name is chart-generated and long
+  # (prometheus-<release>-<chart-fullname>-prometheus-db-prometheus-<release>-<chart-fullname>-
+  # prometheus-0) - confirmed live rather than guessed, since getting this wrong silently
+  # leaves the real EBS volume running.
+  log "Step 4/6: deleting the monitoring Application (kube-prometheus-stack, YACE, the SLO"
+  log "burn-rate rules, the alert bridge's webhook target)..."
+  kubectl delete application monitoring -n argocd --ignore-not-found
+  wait_for "monitoring Application" application_is_gone monitoring
+  kubectl delete pvc -n monitoring \
+    prometheus-monitoring-kube-prometheus-prometheus-db-prometheus-monitoring-kube-prometheus-prometheus-0 \
+    --ignore-not-found
+  wait_for "Prometheus PVC-backed EBS volume" pvc_volume_is_gone \
+    prometheus-monitoring-kube-prometheus-prometheus-db-prometheus-monitoring-kube-prometheus-prometheus-0
+
+  log "Step 5/6: deleting any remaining Karpenter NodeClaims (terminates any EC2 instances it"
   log "launched - Karpenter's own consolidation would eventually do this on its own now that"
-  log "demo-spring-app is gone, but not waiting on that)..."
+  log "demo-spring-app and monitoring are gone, but not waiting on that)..."
   kubectl delete nodeclaim --all --ignore-not-found
   wait_for "Karpenter-provisioned node(s)" karpenter_nodes_are_gone
 
-  log "Step 5/5: Kubernetes-side cleanup confirmed done."
+  log "Step 6/6: Kubernetes-side cleanup confirmed done."
 fi
 
 log "Running terraform destroy in envs/dev - not the foundational pieces (landing-zone,"
