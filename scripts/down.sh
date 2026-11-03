@@ -164,7 +164,22 @@ else
   kubectl delete nodeclaim --all --ignore-not-found
   wait_for "Karpenter-provisioned node(s)" karpenter_nodes_are_gone
 
-  log "Step 6/6: Kubernetes-side cleanup confirmed done."
+  # Confirmed live: leaving the karpenter Application for root-app's own finalizer cascade
+  # (during terraform destroy's helm uninstall) is a real deadlock risk - that cascade deletes
+  # the EC2NodeClass/NodePool (which carry a karpenter.k8s.aws/termination finalizer only the
+  # Karpenter *controller* can process) alongside the controller Deployment itself, with no
+  # ordering guarantee between the two. If the controller pod terminates first, that finalizer
+  # can never clear again - stranding the object (and root-app's own cascade behind it)
+  # permanently. Deleting the CRs explicitly here, while the controller is still running,
+  # avoids the race entirely; only then is the now-empty Application deleted.
+  log "Step 6/6: deleting Karpenter's EC2NodeClass/NodePool while its controller can still"
+  log "process their finalizers, then the karpenter Application itself..."
+  kubectl delete ec2nodeclass --all --ignore-not-found
+  kubectl delete nodepool --all --ignore-not-found
+  kubectl delete application karpenter -n argocd --ignore-not-found
+  wait_for "karpenter Application" application_is_gone karpenter
+
+  log "Kubernetes-side cleanup confirmed done."
 fi
 
 log "Running terraform destroy in envs/dev - not the foundational pieces (landing-zone,"
@@ -177,6 +192,31 @@ log "one, since the whole cluster (and therefore those CRDs) is destroyed moment
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../envs/dev" && pwd)"
 
+# Confirmed live: module.network's NAT gateway/route tables/IGW/EIP have no Terraform-graph
+# reason to wait for module.eks - nothing outside module.network references them directly
+# (module.eks only takes the *subnet* IDs as input, which is a real dependency edge; the
+# routing/NAT resources sitting alongside those subnets aren't), so an untargeted destroy is
+# free to tear them down in parallel with (or before) the EKS cluster and its still-running
+# node group - breaking live pod networking (DNS/internet egress for anything in a private
+# subnet, including Karpenter's own ability to call the EC2 API) on a cluster that isn't gone
+# yet. Can't fix this with a plain depends_on on module.network itself - module.eks needs
+# module.network's subnet outputs to apply at all, so that would be a cycle. Staging the
+# destroy here instead, the same way up.sh stages the apply for its own unrelated Terraform
+# limitation: force module.eks (and everything that depends_on it - module.bootstrap) plus
+# module.rds and module.alerting to go first, then a final untargeted destroy for whatever's
+# left (module.network, mainly).
+log "Step 1/2: destroying module.eks (and module.bootstrap, which depends_on it), module.rds"
+log "and module.alerting first - leaves module.network's NAT/routing resources alone until"
+log "the cluster that actually needs them is confirmed gone..."
+if [[ "$AUTO_APPROVE" == true ]]; then
+  terraform destroy -auto-approve -var="aws_profile=$PROFILE" \
+    -target=module.eks -target=module.rds -target=module.alerting
+else
+  terraform destroy -var="aws_profile=$PROFILE" \
+    -target=module.eks -target=module.rds -target=module.alerting
+fi
+
+log "Step 2/2: destroying everything else (module.network, mainly)..."
 if [[ "$AUTO_APPROVE" == true ]]; then
   terraform destroy -auto-approve -var="aws_profile=$PROFILE"
 else
