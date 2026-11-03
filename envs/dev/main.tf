@@ -32,7 +32,7 @@ module "eks" {
   demo_app_ssm_parameter_arns  = [module.rds.address_parameter_arn, module.rds.secret_arn_parameter_arn]
 
   # Same non-cycle reasoning as module.rds above, now for module.alerting's secret.
-  alertmanager_smtp_key_secret_arn = module.alerting.smtp_key_secret_arn
+  alertmanager_smtp_key_secret_arns = [module.alerting.smtp_key_secret_arn]
 
   tags = {
     environment = "dev"

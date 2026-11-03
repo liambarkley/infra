@@ -159,10 +159,10 @@ variable "alertmanager_service_account" {
   default     = "alertmanager"
 }
 
-variable "alertmanager_smtp_key_secret_arn" {
-  description = "Secrets Manager secret ARN (modules/alerting's smtp_key_secret_arn output) that Alertmanager's initContainer may call secretsmanager:GetSecretValue on, to derive its SES SMTP password at pod startup. Empty skips creating the role/association entirely."
-  type        = string
-  default     = ""
+variable "alertmanager_smtp_key_secret_arns" {
+  description = "Secrets Manager secret ARN (modules/alerting's smtp_key_secret_arn output), as a single-element list - a list, not a bare string, so its length is known at plan time even on a from-scratch apply where that secret doesn't exist yet either (see main.tf's comment on the alertmanager resources). Lets Alertmanager's initContainer call secretsmanager:GetSecretValue to derive its SES SMTP password at pod startup. Empty skips creating the role/association entirely."
+  type        = list(string)
+  default     = []
 }
 
 variable "tags" {
