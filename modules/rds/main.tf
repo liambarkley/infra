@@ -23,10 +23,20 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "postgres" {
-  for_each                     = toset(var.allowed_security_group_ids)
+  # count, not for_each over toset(var.allowed_security_group_ids): confirmed live, this
+  # broke a staged `terraform destroy` outright, on a plain re-run, with "Invalid for_each
+  # argument" - for_each needs the actual security-group-ID *value* to build its plan, not
+  # just the list's length, and once module.eks (the sole source of that value -
+  # [module.eks.cluster_security_group_id] from envs/dev) has zero instances left in state,
+  # that value can never be resolved again in any later Terraform invocation, even one that
+  # has nothing left to do here either. count only needs the list's length, which is a
+  # purely syntactic fact about the expression's shape - known even when the one element's
+  # value isn't - same reasoning as modules/alerting's identical count fix this same
+  # session (see that module's own comment on the "Invalid count argument" class of bug).
+  count                        = length(var.allowed_security_group_ids)
   description                  = "Postgres from the EKS cluster security group."
   security_group_id            = aws_security_group.this.id
-  referenced_security_group_id = each.value
+  referenced_security_group_id = var.allowed_security_group_ids[count.index]
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"
