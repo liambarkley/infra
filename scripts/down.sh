@@ -235,11 +235,22 @@ else
     -target=module.eks -target=module.rds -target=module.alerting
 fi
 
-log "Step 2/2: destroying everything else (module.network, mainly)..."
+# Confirmed live: a plain, untargeted `terraform destroy` here fails outright -
+# ("Invalid for_each argument", module.rds.aws_vpc_security_group_ingress_rule.postgres) -
+# even though that resource is already fully destroyed and gone from state (step 1 handled
+# it fine). An untargeted destroy still evaluates every resource *block in the configuration*
+# while building its plan, not just what remains in state, and that resource's for_each
+# still references module.eks.cluster_security_group_id - permanently unresolvable now that
+# module.eks itself has no instances left at all. module.network is the only thing actually
+# left to destroy at this point, so target it explicitly instead of the whole config.
+log "Step 2/2: destroying module.network specifically - not an untargeted destroy, which"
+log "re-evaluates every resource block in the full configuration (not just what's left in"
+log "state) while planning, and fails on module.rds's for_each referencing module.eks's"
+log "now-gone cluster_security_group_id output, even though that resource is already gone..."
 if [[ "$AUTO_APPROVE" == true ]]; then
-  terraform destroy -auto-approve -var="aws_profile=$PROFILE"
+  terraform destroy -auto-approve -var="aws_profile=$PROFILE" -target=module.network
 else
-  terraform destroy -var="aws_profile=$PROFILE"
+  terraform destroy -var="aws_profile=$PROFILE" -target=module.network
 fi
 
 log "Done."
