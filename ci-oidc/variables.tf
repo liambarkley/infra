@@ -29,6 +29,19 @@ variable "oidc_sub_claim_prefix" {
   default     = "repo:liambarkley@8986270/infra@1438777351"
 }
 
+variable "demo_app_oidc_sub_claim_prefix" {
+  description = <<-EOT
+    Same immutable-subject-claim caveat as oidc_sub_claim_prefix above, for the
+    liambarkley/demo-spring-app repo instead of this one. Get the real value with:
+      gh api repos/liambarkley/demo-spring-app/actions/oidc/customization/sub --jq .sub_claim_prefix
+    Re-check this if demo-spring-app's cache-lookup role ever stops authorizing for no
+    apparent code reason - same "changes if the repo is ever recreated or transferred" risk
+    documented above for infra's own value.
+  EOT
+  type        = string
+  default     = "repo:liambarkley@8986270/demo-spring-app@1439092711"
+}
+
 variable "state_bucket_name" {
   description = "S3 bucket holding Terraform remote state, in shared-services. Output of ../bootstrap-state (terraform output -raw state_bucket_name) - supply it with -var or a tfvars file, since it's in a separate Terraform state this config doesn't read."
   type        = string

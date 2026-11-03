@@ -85,3 +85,69 @@ module "platform_dev" {
   oidc_thumbprint       = data.tls_certificate.github.certificates[0].sha1_fingerprint
   state_bucket_name     = var.state_bucket_name
 }
+
+# demo-spring-app's CI: a narrowly-scoped, read-only role so its workflow can resolve the
+# Build Cache Node's current ALB hostname at build time instead of reading a manually-updated
+# BUILD_CACHE_URL repo variable - that ALB gets a brand-new DNS name every time envs/dev is
+# destroyed and recreated (see docs/PLAN.md), and this was the one step `scripts/up.sh` could
+# never automate itself (modifying a different repo's CI config is a human decision, not
+# something either teardown/bring-up script does). Lives here, not in modules/github-oidc-roles,
+# since that module is specifically about this *infra* repo's own plan/apply roles, trusts a
+# different repo's OIDC subject entirely, and reuses platform-dev's existing OIDC provider
+# (an account-wide singleton - a second module instantiation would try to create another one
+# for the same URL and fail).
+data "aws_iam_policy_document" "demo_app_cache_lookup_assume_role" {
+  provider = aws.platform_dev
+
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [module.platform_dev.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    # Trusted for every event (not just main/PR, unlike infra's own plan/apply roles) - this
+    # role can only ever read the ALB's hostname, nothing destructive or state-changing, so
+    # there's no meaningful blast radius to restrict by trigger type the way infra's apply
+    # role restricts to main-only.
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["${var.demo_app_oidc_sub_claim_prefix}:*"]
+    }
+  }
+}
+
+resource "aws_iam_role" "demo_app_cache_lookup" {
+  provider           = aws.platform_dev
+  name               = "build-cache-demo-app-cache-lookup"
+  assume_role_policy = data.aws_iam_policy_document.demo_app_cache_lookup_assume_role.json
+}
+
+data "aws_iam_policy_document" "demo_app_cache_lookup" {
+  statement {
+    sid    = "FindTheAlbByItsProjectTag"
+    effect = "Allow"
+    # tag:GetResources has no resource-level ARN to scope to (it's a cross-service lookup
+    # API) - the real scoping is the tag filter the workflow itself passes at call time
+    # (project=build-cache, resource type elasticloadbalancing:loadbalancer), same reasoning
+    # as cloudwatch_exporter's identical action in modules/eks.
+    actions   = ["tag:GetResources", "elasticloadbalancing:DescribeLoadBalancers"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "demo_app_cache_lookup" {
+  provider = aws.platform_dev
+  name     = "find-build-cache-alb"
+  role     = aws_iam_role.demo_app_cache_lookup.id
+  policy   = data.aws_iam_policy_document.demo_app_cache_lookup.json
+}

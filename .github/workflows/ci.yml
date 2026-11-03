@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dir: [envs/dev, bootstrap-state, ci-oidc, landing-zone, log-archive, modules/network, modules/eks, modules/bootstrap, modules/storage, modules/github-oidc-roles, modules/rds]
+        dir: [envs/dev, bootstrap-state, ci-oidc, landing-zone, log-archive, modules/network, modules/eks, modules/bootstrap, modules/storage, modules/github-oidc-roles, modules/rds, modules/alerting]
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
