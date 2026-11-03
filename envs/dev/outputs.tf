@@ -42,3 +42,8 @@ output "rds_master_user_secret_arn" {
   description = "AWS Secrets Manager ARN holding the RDS master password - the demo app reads this at runtime, nothing here holds the value itself."
   value       = module.rds.master_user_secret_arn
 }
+
+output "alert_webhook_url" {
+  description = "API Gateway URL Alertmanager posts to - AWS-generated, changes on every destroy/recreate, has to be hand-copied into platform/apps/monitoring/application.yaml's webhook_configs url (see that module's README). scripts/up.sh prints this."
+  value       = module.alerting.webhook_url
+}

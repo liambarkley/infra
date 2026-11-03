@@ -132,9 +132,9 @@ log "Step 3/4: refreshing kubeconfig against the (possibly brand-new) cluster...
 aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION" --profile "$PROFILE"
 wait_for "cluster reachable" bash -c "kubectl get nodes >/dev/null 2>&1"
 
-log "Step 4/4: waiting for ArgoCD to sync root-app and its four child apps to Healthy..."
+log "Step 4/4: waiting for ArgoCD to sync root-app and its five child apps to Healthy..."
 wait_for "root-app" application_is_healthy root-app
-for app in aws-load-balancer-controller karpenter build-cache-node demo-spring-app; do
+for app in aws-load-balancer-controller karpenter build-cache-node demo-spring-app monitoring; do
   wait_for "$app" application_is_healthy "$app"
 done
 
@@ -149,4 +149,10 @@ if wait_for "ALB hostname" alb_hostname_ready; then
   log "to re-confirm cache hits against this address."
 fi
 
-log "Done. Everything in docs/PLAN.md's phases 2-3 should now be live."
+log ""
+log "Alertmanager webhook URL: $(terraform output -raw alert_webhook_url 2>/dev/null)"
+log "Also almost certainly NEW, same reason as the ALB hostname above - copy it into"
+log "platform/apps/monitoring/application.yaml's webhook_configs url (REPLACE-ME placeholder)"
+log "before trusting any SLO alert to actually reach an inbox."
+
+log "Done. Everything in docs/PLAN.md's phases 2-4 should now be live."
