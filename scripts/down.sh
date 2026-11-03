@@ -107,8 +107,9 @@ karpenter_nodes_are_gone() {
   [[ "$(kubectl get nodes -l karpenter.sh/nodepool --no-headers 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]]
 }
 
-root_app_automated_sync_is_off() {
-  [[ "$(kubectl get application root-app -n argocd -o jsonpath='{.spec.syncPolicy.automated}' 2>/dev/null)" == "" ]]
+automated_sync_is_off() {
+  local app="$1"
+  [[ "$(kubectl get application "$app" -n argocd -o jsonpath='{.spec.syncPolicy.automated}' 2>/dev/null)" == "" ]]
 }
 
 if ! kubectl get nodes >/dev/null 2>&1; then
@@ -119,7 +120,7 @@ else
   log "Step 1/6: pausing root-app's automated sync, so deleting its children below doesn't"
   log "just get self-healed back a level up..."
   kubectl patch application root-app -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
-  wait_for "root-app automated sync" root_app_automated_sync_is_off
+  wait_for "root-app automated sync" automated_sync_is_off root-app
 
   log "Step 2/6: deleting the build-cache-node Application (cascades through its Ingress, so"
   log "the ALB controller deprovisions the ALB - each resource's own finalizer blocks the"
@@ -172,8 +173,19 @@ else
   # can never clear again - stranding the object (and root-app's own cascade behind it)
   # permanently. Deleting the CRs explicitly here, while the controller is still running,
   # avoids the race entirely; only then is the now-empty Application deleted.
-  log "Step 6/6: deleting Karpenter's EC2NodeClass/NodePool while its controller can still"
-  log "process their finalizers, then the karpenter Application itself..."
+  #
+  # Confirmed live the hard way, one level deeper: pausing root-app's automated sync above
+  # does NOT pause karpenter's *own* syncPolicy.automated - a plain `kubectl delete ec2nodeclass`
+  # got recreated by karpenter's own selfHeal within the same second (confirmed: the
+  # "new" object's creationTimestamp landed exactly when the delete completed), stranding
+  # that second copy's finalizer the instant the karpenter Application's own cascade raced
+  # the controller shutdown again - the identical deadlock, one layer in. Same fix as
+  # root-app, applied to karpenter's own Application first.
+  log "Step 6/6: pausing karpenter's own automated sync, then deleting its EC2NodeClass/"
+  log "NodePool while its controller can still process their finalizers, then the karpenter"
+  log "Application itself..."
+  kubectl patch application karpenter -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+  wait_for "karpenter automated sync" automated_sync_is_off karpenter
   kubectl delete ec2nodeclass --all --ignore-not-found
   kubectl delete nodepool --all --ignore-not-found
   kubectl delete application karpenter -n argocd --ignore-not-found
