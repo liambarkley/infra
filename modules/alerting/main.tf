@@ -98,6 +98,14 @@ resource "aws_lambda_function" "alert_bridge" {
   # Manager secret.
   # checkov:skip=CKV_AWS_272: code-signing validation is an enterprise supply-chain control -
   # disproportionate for a single-function demo bridge with no third-party deploy pipeline.
+  # checkov:skip=CKV_AWS_115: tried a small reserved_concurrent_executions as a real (not just
+  # documented) mitigation for the API Gateway route having no authorizer - failed on a real
+  # apply: "decreases account's UnreservedConcurrentExecution below its minimum value of [10]".
+  # This account's shared Lambda concurrency pool is apparently too small right now (likely
+  # low default quota on a low-usage dev account, same category as the EC2 vCPU quotas
+  # envs/dev/README.md already flags) to safely reserve any amount without risking blocking
+  # every *other* Lambda in the account. Not worth chasing a quota increase for a demo alerting
+  # bridge - left unreserved instead.
   function_name = "${var.name}-alert-bridge"
   role          = aws_iam_role.alert_bridge.arn
   handler       = "handler.handler"
@@ -108,11 +116,6 @@ resource "aws_lambda_function" "alert_bridge" {
   architectures = ["arm64"]
   timeout       = 10
   memory_size   = 128
-  # Real mitigation, not just a skip, for the API Gateway route having no authorizer (see that
-  # resource's checkov:skip comment): caps the worst case if the unauthenticated URL is ever
-  # found and hit repeatedly - at most 2 concurrent SES sends, regardless of how many requests
-  # arrive. Free either way; this just bounds the blast radius.
-  reserved_concurrent_executions = 2
 
   filename         = data.archive_file.alert_bridge.output_path
   source_code_hash = data.archive_file.alert_bridge.output_base64sha256
@@ -177,8 +180,9 @@ resource "aws_apigatewayv2_route" "alert_bridge" {
   # webhook_configs can't sign a request (no SigV4/IAM auth support), and this project has no
   # domain for a custom-auth alternative. Same accepted-risk shape this project already made
   # once for the Build Cache Node's ALB (unauthenticated-but-unguessable endpoint, documented
-  # trade-off, not an oversight) - reserved_concurrent_executions on the Lambda below bounds
-  # the actual cost/blast-radius if the URL is ever found and abused.
+  # trade-off, not an oversight). A reserved-concurrency cap on the Lambda would have bounded
+  # the blast radius further but isn't viable on this account right now - see that resource's
+  # checkov:skip=CKV_AWS_115 comment.
   api_id    = aws_apigatewayv2_api.alert_bridge.id
   route_key = "POST /alert"
   target    = "integrations/${aws_apigatewayv2_integration.alert_bridge.id}"
