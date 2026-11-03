@@ -184,8 +184,15 @@ else
   log "Step 6/6: pausing karpenter's own automated sync, then deleting its EC2NodeClass/"
   log "NodePool while its controller can still process their finalizers, then the karpenter"
   log "Application itself..."
-  kubectl patch application karpenter -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
-  wait_for "karpenter automated sync" automated_sync_is_off karpenter
+  # Confirmed live: on a re-run after the karpenter Application was already fully deleted
+  # (e.g. a prior run got unstuck by hand and finished this step), a plain `kubectl patch`
+  # has no --ignore-not-found equivalent and errors outright - fatal under `set -e`, unlike
+  # every delete call in this script, which already tolerates "already gone". Guard on
+  # existence first so re-running this script is always safe, not just the first time.
+  if kubectl get application karpenter -n argocd >/dev/null 2>&1; then
+    kubectl patch application karpenter -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+    wait_for "karpenter automated sync" automated_sync_is_off karpenter
+  fi
   kubectl delete ec2nodeclass --all --ignore-not-found
   kubectl delete nodepool --all --ignore-not-found
   kubectl delete application karpenter -n argocd --ignore-not-found
