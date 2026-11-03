@@ -4,9 +4,16 @@ variable "name" {
 }
 
 variable "kubernetes_version" {
+  # Confirmed live via `aws eks describe-cluster-versions`: 1.31 left EKS standard support on
+  # 2025-11-25 and has been billing at the extended-support control-plane rate ($0.60/hr) ever
+  # since, instead of standard support's $0.10/hr - a 6x markup that showed up directly in the
+  # Cost Explorer breakdown behind a surprise bill. 1.34 is on standard support until
+  # 2027-12-01. Whoever bumps this next should re-check
+  # `aws eks describe-cluster-versions --query 'clusterVersions[?clusterVersionStatus==\`STANDARD_SUPPORT\`]'`
+  # rather than assuming any particular version stays on standard support indefinitely.
   description = "EKS Kubernetes minor version."
   type        = string
-  default     = "1.31"
+  default     = "1.34"
 }
 
 variable "private_subnet_ids" {
