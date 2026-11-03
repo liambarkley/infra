@@ -720,56 +720,9 @@ resource "aws_eks_pod_identity_association" "cloudwatch_exporter" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
-# --- Alertmanager: read-only access to exactly one Secrets Manager secret (modules/alerting's
-# raw SES SMTP IAM access key) - the initContainer derives the actual SMTP password from it at
-# pod startup. Same shape as demo_app's secret access above, including the list-not-bare-string
-# variable: a list's length is known from its own structure even when an element inside it
-# (module.alerting.smtp_key_secret_arn, on a from-scratch apply where that secret doesn't exist
-# yet either) isn't known until apply - a direct `!= ""` string comparison needs the actual
-# value, which doesn't exist yet, and fails plan outright ("Invalid count argument"). Confirmed
-# live, same class of problem modules/rds's for_each hit before (see envs/dev's bootstrap
-# module comment) - fixed the same way instead of reaching for -target staging again. ---
-
-resource "aws_iam_role" "alertmanager" {
-  count = length(var.alertmanager_smtp_key_secret_arns) > 0 ? 1 : 0
-  name  = "${var.name}-alertmanager"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Action    = ["sts:AssumeRole", "sts:TagSession"]
-      Principal = { Service = "pods.eks.amazonaws.com" }
-    }]
-  })
-
-  tags = local.tags
-}
-
-data "aws_iam_policy_document" "alertmanager" {
-  count = length(var.alertmanager_smtp_key_secret_arns) > 0 ? 1 : 0
-
-  statement {
-    sid       = "ReadSesSmtpKey"
-    effect    = "Allow"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = var.alertmanager_smtp_key_secret_arns
-  }
-}
-
-resource "aws_iam_role_policy" "alertmanager" {
-  count  = length(var.alertmanager_smtp_key_secret_arns) > 0 ? 1 : 0
-  name   = "read-ses-smtp-key"
-  role   = aws_iam_role.alertmanager[0].id
-  policy = data.aws_iam_policy_document.alertmanager[0].json
-}
-
-resource "aws_eks_pod_identity_association" "alertmanager" {
-  count           = length(var.alertmanager_smtp_key_secret_arns) > 0 ? 1 : 0
-  cluster_name    = aws_eks_cluster.this.name
-  namespace       = var.alertmanager_namespace
-  service_account = var.alertmanager_service_account
-  role_arn        = aws_iam_role.alertmanager[0].arn
-
-  depends_on = [aws_eks_addon.pod_identity_agent]
-}
+# Alertmanager itself needs no AWS permissions and no Pod Identity role: it POSTs alerts to
+# modules/alerting's API Gateway URL over plain HTTPS (Alertmanager's generic webhook_configs),
+# which is unauthenticated from the cluster's side - the Lambda behind that URL is what holds
+# the real (SES-scoped) IAM role. A Pod-Identity-bound role lived here briefly for an earlier
+# SMTP-based design, abandoned after it hit this account's landing-zone SCP head-on (see
+# modules/alerting/README.md) - removed along with it rather than left dangling unused.

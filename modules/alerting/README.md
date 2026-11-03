@@ -1,44 +1,52 @@
 # alerting
 
-Phase 4. SES identity and IAM plumbing for Alertmanager's email receiver - the AWS-side half;
-the Kubernetes-side half (Alertmanager's config, the initContainer that turns the raw access
-key into an SMTP password) is `platform/apps/monitoring`.
+Phase 4. SES identity and a Lambda-behind-API-Gateway bridge for Alertmanager's alerts - the
+AWS-side half; the Kubernetes-side half (Alertmanager's `webhook_configs`) is
+`platform/apps/monitoring`.
 
-## What this is, and why it's not keyless like everything else
+## Why a Lambda bridge, not SES's SMTP endpoint directly
 
-Every other credential in this project reaches a pod via OIDC or EKS Pod Identity - no access
-keys, no secrets committed anywhere (`ci-oidc`, Karpenter, the AWS Load Balancer Controller,
-the demo app's RDS access). Alertmanager's built-in `email_configs` receiver breaks that
-pattern on one point: it only speaks SMTP, and SES's SMTP endpoint authenticates with a
-password that's deterministically derived from a real IAM access key's secret - there is no
-SigV4/STS equivalent for SMTP AUTH. An access key has to exist somewhere for this to work at
-all. This module creates the smallest one it can: a dedicated IAM user whose only permission is
-`ses:SendRawEmail`, conditioned on `ses:FromAddress` matching the one verified sender address -
-it cannot send as anyone else, and can't do anything else in the account.
+The first version of this module used SES's SMTP endpoint directly (an IAM user + access key,
+since SMTP AUTH has no SigV4/role equivalent - see git history for that version if curious).
+**That failed on a real apply**: this account's landing-zone SCP
+(`workloads-guardrails` -> `DenyIamUserAndAccessKeyCreation`, `infra/landing-zone/scps.tf`)
+flatly denies `iam:CreateUser` and `iam:CreateAccessKey` across the whole Workloads OU - a
+guardrail set up deliberately in phase 1 ("access via IAM Identity Center ... rather than an
+IAM user"), not an oversight to work around. Since an IAM access key is the *only* way to get
+an SES SMTP password (there's no role-based equivalent - roles can't hold long-lived access
+keys at all, by design), the SMTP route was never actually viable on this account specifically.
 
-The raw key (not the derived SMTP password - see `main.tf`'s comment on `aws_secretsmanager_secret.smtp` for why) lands in Secrets Manager, never in this repo. `platform/apps/monitoring`'s
-Alertmanager initContainer reads it via Pod Identity and derives the actual SMTP password at
-pod startup, writing it to a file Alertmanager's `smtp_auth_password_file` points at.
+The fix routes around IAM users entirely rather than weakening the guardrail: Alertmanager's
+generic `webhook_configs` POSTs its alert JSON to an API Gateway HTTP API, which invokes a small
+Lambda (`lambda/handler.py`) that calls SES's **`SendEmail` API** (not SMTP) using its own
+execution role - a normal IAM role, which the SCP doesn't touch, only users/keys. No long-lived
+credential exists anywhere in this path - the one deliberate exception to this project's
+keyless pattern that phase 4 started with is gone again.
 
 ## The one manual step
 
-SES requires the sender address to be a verified identity before it will send anything, even
-in sandbox mode - `aws_sesv2_email_identity` triggers a confirmation email, but only Liam
-clicking the link in it actually verifies it. Until then, Alertmanager's send attempts will
-fail outright (not silently - the init container logs the SES error). Same category of manual
-step as `demo-spring-app`'s `BUILD_CACHE_URL` repo variable: AWS-triggered, human-confirmed,
-can't be scripted from here.
+Same as before: `aws_sesv2_email_identity.sender` triggers a confirmation email only Liam can
+click - Alertmanager's alerts will reach the Lambda and get rejected by SES (not silently -
+`aws_cloudwatch_log_group.alert_bridge` has the function's logs) until that identity shows
+Verified. The account is also in the SES sandbox, which is why `sender_email` is reused as both
+the From and the only allowed To address.
 
-The account is also in the SES sandbox (no request filed to leave it - no need to for a single
-self-notification address): sandbox mode requires the **To** address to be verified too, which
-is why `sender_email` is reused as the only alert recipient rather than having separate
-from/to addresses.
+## A second manual step, new with this design
 
-## Worth confirming at apply time, not assumed here
+This module's `webhook_url` output is AWS-generated and changes every time `envs/dev` is
+destroyed and recreated - same category as `demo-spring-app`'s `BUILD_CACHE_URL` and the RDS
+address, and like `BUILD_CACHE_URL` it has to be hand-copied into a committed file
+(`platform/apps/monitoring/application.yaml`'s `alertmanager.config` `webhook_configs` `url`)
+rather than resolved at pod startup - Alertmanager's webhook receiver has no `_file`-suffixed
+option the way its SMTP settings did, so the trick that kept the old design's secret out of git
+doesn't apply here (there's no secret to keep out - the URL is low-sensitivity, just
+environment-specific). `scripts/up.sh` prints this value alongside the ALB hostname for exactly
+this reason.
 
-Alertmanager added `smtp_auth_password_file` (and `smtp_auth_username_file`) as config options
-specifically so SMTP credentials don't have to live in the chart's values - `platform/apps/monitoring` assumes both exist on whatever Alertmanager version `kube-prometheus-stack` pins.
-If `smtp_auth_username_file` turns out not to exist on that version, the fallback is templating
-the username (the IAM access key ID - not secret by itself, but CLAUDE.md's "no keys in files"
-rule is written broadly enough to avoid hardcoding it anyway) into the config via an `envsubst`
-init step instead of a literal value.
+## Not auto-confirmed to actually work yet
+
+Nothing here has been proven against real Alertmanager traffic - this was rebuilt after the
+SMTP approach failed mid-apply, in the same session, and the next real apply is what actually
+tests it end to end (Lambda invoked, SES call succeeds, email lands). If SES rejects the send
+(most likely cause: the identity isn't Verified yet, or the sandbox's To-address restriction),
+that shows up in the Lambda's own CloudWatch Logs, not as a silent failure.

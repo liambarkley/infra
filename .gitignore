@@ -8,6 +8,10 @@
 !*.tfvars.example
 crash.log
 crash.*.log
+# Lambda packaging build output (modules/alerting's data.archive_file) - generated at
+# plan/apply time from lambda/handler.py, which is the real source.
+__pycache__/
+*.zip
 override.tf
 override.tf.json
 *_override.tf

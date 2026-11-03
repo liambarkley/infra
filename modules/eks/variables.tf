@@ -147,24 +147,6 @@ variable "cloudwatch_exporter_service_account" {
   default     = "cloudwatch-exporter"
 }
 
-variable "alertmanager_namespace" {
-  description = "Namespace Alertmanager runs in - must match platform/apps/monitoring's kube-prometheus-stack release."
-  type        = string
-  default     = "monitoring"
-}
-
-variable "alertmanager_service_account" {
-  description = "Service account name Alertmanager's pod runs as - must match platform/apps/monitoring's kube-prometheus-stack values (alertmanager.serviceAccount.name)."
-  type        = string
-  default     = "alertmanager"
-}
-
-variable "alertmanager_smtp_key_secret_arns" {
-  description = "Secrets Manager secret ARN (modules/alerting's smtp_key_secret_arn output), as a single-element list - a list, not a bare string, so its length is known at plan time even on a from-scratch apply where that secret doesn't exist yet either (see main.tf's comment on the alertmanager resources). Lets Alertmanager's initContainer call secretsmanager:GetSecretValue to derive its SES SMTP password at pod startup. Empty skips creating the role/association entirely."
-  type        = list(string)
-  default     = []
-}
-
 variable "tags" {
   description = "Extra tags merged onto every resource, in addition to project = build-cache."
   type        = map(string)
