@@ -211,6 +211,13 @@ log "one, since the whole cluster (and therefore those CRDs) is destroyed moment
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../envs/dev" && pwd)"
 
+# Captured now, before anything below destroys module.network itself - this is the only
+# point in the script where `terraform output` can still resolve it. Used after Step 1 to
+# sweep for orphaned ENIs/security groups (see that comment) by VPC ID rather than by tag,
+# since the vpc_id output is exact and doesn't depend on the ALB controller or anything else
+# having tagged the VPC itself with project=build-cache (nothing does).
+VPC_ID="$(terraform output -raw vpc_id 2>/dev/null || true)"
+
 # Confirmed live: module.network's NAT gateway/route tables/IGW/EIP have no Terraform-graph
 # reason to wait for module.eks - nothing outside module.network references them directly
 # (module.eks only takes the *subnet* IDs as input, which is a real dependency edge; the
@@ -233,6 +240,44 @@ if [[ "$AUTO_APPROVE" == true ]]; then
 else
   terraform destroy -var="aws_profile=$PROFILE" \
     -target=module.eks -target=module.rds -target=module.alerting
+fi
+
+# Confirmed live, twice, on the same day: the VPC CNI leaves a secondary ENI behind
+# ("aws-K8S-i-...", status "available", unattached) and EKS leaves its own auto-created
+# cluster security group (eks-cluster-sg-<cluster>-<suffix>) behind, in both cases well after
+# module.eks reports fully destroyed - neither is tracked in Terraform state (EKS/the VPC CNI
+# create them outside any Terraform resource), so `terraform destroy` has no idea they exist
+# either. Left alone, each one blocks Step 2's subnet/VPC deletion for 10+ minutes while AWS's
+# own async cleanup eventually catches up on its own - confirmed by direct `aws ec2
+# delete-network-interface`/`delete-security-group` succeeding immediately by hand, well
+# before AWS's own lag would have cleared them. Sweeping both explicitly here, right after
+# module.eks is confirmed gone and right before module.network needs the VPC empty, so a
+# future teardown doesn't need this same live firefighting again.
+if [[ -n "$VPC_ID" ]]; then
+  log "Checking for orphaned ENIs left behind by the VPC CNI in $VPC_ID..."
+  ORPHAN_ENIS="$(aws ec2 describe-network-interfaces --region "$REGION" --profile "$PROFILE" \
+    --filters "Name=vpc-id,Values=$VPC_ID" --query 'NetworkInterfaces[].NetworkInterfaceId' \
+    --output text 2>/dev/null || true)"
+  for eni in $ORPHAN_ENIS; do
+    log "  deleting orphaned ENI $eni..."
+    aws ec2 delete-network-interface --region "$REGION" --profile "$PROFILE" \
+      --network-interface-id "$eni" || log "  could not delete $eni - check manually before Step 2."
+  done
+
+  log "Checking for orphaned (non-default) security groups left behind in $VPC_ID..."
+  ORPHAN_SGS="$(aws ec2 describe-security-groups --region "$REGION" --profile "$PROFILE" \
+    --filters "Name=vpc-id,Values=$VPC_ID" \
+    --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text 2>/dev/null || true)"
+  for sg in $ORPHAN_SGS; do
+    log "  deleting orphaned security group $sg..."
+    aws ec2 delete-security-group --region "$REGION" --profile "$PROFILE" \
+      --group-id "$sg" || log "  could not delete $sg - check manually before Step 2."
+  done
+else
+  log "Could not resolve vpc_id from terraform output - skipping the orphaned ENI/security"
+  log "group sweep. If Step 2 below stalls for 10+ minutes on subnet/VPC deletion, check for"
+  log "these by hand (aws ec2 describe-network-interfaces/describe-security-groups --filters"
+  log "Name=vpc-id,Values=<vpc-id>)."
 fi
 
 # Confirmed live: a plain, untargeted `terraform destroy` here fails outright -
