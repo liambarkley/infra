@@ -1,9 +1,13 @@
 # Step 4: Budgets alerts on the management account, per docs/PLAN.md's cost-control guardrail.
-# $50/month limit with notifications at 50% ($25) and 100% ($50) of actual spend.
+# $25/month limit with notifications at 50% ($12.50) and 100% ($25) of actual spend. Lowered
+# from the original $50 cap after a real $50 CAD bill (2026-11, driven mostly by the EKS
+# control plane accidentally billing at the extended-support rate - see modules/eks/
+# variables.tf's kubernetes_version comment - plus several long live-debugging sessions this
+# week leaving the cluster up longer than a normal working session).
 resource "aws_budgets_budget" "monthly_cost" {
   name         = "build-cache-monthly"
   budget_type  = "COST"
-  limit_amount = "50"
+  limit_amount = "25"
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
@@ -24,14 +28,16 @@ resource "aws_budgets_budget" "monthly_cost" {
   }
 }
 
-# --- Automatic cutoff at $100 actual spend: attach a deny-all SCP to Workloads ---
+# --- Automatic cutoff at $50 actual spend: attach a deny-all SCP to Workloads ---
 #
 # This is a real, automatic lockdown - not a notification. Above the two alert thresholds in
 # the budget itself, this is the backstop for "the alerts got missed and spend kept climbing."
 # It denies every action in Workloads (shared-services, platform-dev) only - not Security, not
-# the management account - until someone manually detaches the policy. See
-# landing-zone/README.md for how to test this safely with a low threshold, and how to remove
-# the SCP afterwards.
+# the management account - until someone manually detaches the policy. Threshold lowered from
+# $100 to $50 (still 2x the $25 monthly cap, same ratio as before) when the cap itself was
+# lowered - $100 would have let spend run to 4x the new cap before the hard lockout even fired.
+# See landing-zone/README.md for how to test this safely with a low threshold, and how to
+# remove the SCP afterwards.
 
 data "aws_caller_identity" "management" {}
 
@@ -101,7 +107,7 @@ resource "aws_iam_role_policy" "budgets_action_permissions" {
   policy = data.aws_iam_policy_document.budgets_action_permissions.json
 }
 
-resource "aws_budgets_budget_action" "deny_all_at_100" {
+resource "aws_budgets_budget_action" "deny_all_at_50" {
   budget_name        = aws_budgets_budget.monthly_cost.name
   action_type        = "APPLY_SCP_POLICY"
   approval_model     = "AUTOMATIC"
@@ -110,7 +116,7 @@ resource "aws_budgets_budget_action" "deny_all_at_100" {
 
   action_threshold {
     action_threshold_type  = "ABSOLUTE_VALUE"
-    action_threshold_value = 100
+    action_threshold_value = 50
   }
 
   definition {
@@ -124,4 +130,11 @@ resource "aws_budgets_budget_action" "deny_all_at_100" {
     address           = var.budget_alert_email
     subscription_type = "EMAIL"
   }
+}
+
+# Keeps state tracking the same object across the name change above (threshold value changed,
+# not the resource itself) - avoids an unnecessary destroy+recreate of the budget action.
+moved {
+  from = aws_budgets_budget_action.deny_all_at_100
+  to   = aws_budgets_budget_action.deny_all_at_50
 }
