@@ -19,10 +19,11 @@
 #    aws-load-balancer-controller, build-cache-node, demo-spring-app) have actually synced and
 #    gone Healthy yet.
 #
-# What this does NOT do, on purpose: update demo-spring-app's BUILD_CACHE_URL repo variable.
-# The Build Cache Node's ALB gets a brand-new DNS name every time it's recreated from scratch -
-# this script prints it at the end, but changing a different repo's CI configuration is a
-# deliberate step for Liam to take, not something to automate here.
+# No longer needs to tell Liam to update demo-spring-app's BUILD_CACHE_URL repo variable: that
+# CI now resolves the Build Cache Node's ALB live via a read-only OIDC role
+# (infra/ci-oidc's demo_app_cache_lookup role) instead of reading a stored variable - see
+# demo-spring-app/.github/workflows/ci.yml's resolve-cache-url job. Still prints the new ALB
+# hostname below, just as information, not as a manual step to go act on.
 #
 # Run by hand - never run by Claude Code (CLAUDE.md's hard rule: no `terraform apply`). This is
 # the "up" half of docs/PLAN.md's "make up / make down" guardrail (phase 6 checklist).
@@ -145,8 +146,8 @@ if wait_for "ALB hostname" alb_hostname_ready; then
   log ""
   log "ALB hostname: http://$hostname"
   log "This is almost certainly NEW (ALBs don't keep their DNS name across a destroy/recreate) -"
-  log "update demo-spring-app's BUILD_CACHE_URL repo variable by hand before re-running its CI"
-  log "to re-confirm cache hits against this address."
+  log "no manual step needed though: demo-spring-app's CI resolves this live every run via the"
+  log "demo_app_cache_lookup OIDC role, not a stored variable."
 fi
 
 log ""
